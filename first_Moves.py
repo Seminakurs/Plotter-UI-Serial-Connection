@@ -126,7 +126,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('3D Printer Control - Tkinter')
-        self.geometry('780x540')
+        self.geometry('950x850')
         self.controller = PrinterController()
         self.create_widgets()
         # start with disabled jog widgets until connected
@@ -134,114 +134,141 @@ class App(tk.Tk):
         self.after(200, self._periodic_ui_update)
 
     def create_widgets(self):
+        # Modern look and feel
+        style = ttk.Style(self)
+        style.theme_use('clam')
+        style.configure('TLabelframe', padding=15)
+        style.configure('TLabelframe.Label', font=('Segoe UI', 11, 'bold') if 'win' in self.tk.call('tk', 'windowingsystem') else ('Helvetica', 11, 'bold'))
+        style.configure('TButton', padding=6)
+        style.configure('TFrame', padding=2)
+
+        # Main Layout: Top connection bar, and a Notebook for other features
         frm_top = ttk.Frame(self)
-        frm_top.pack(fill='x', padx=8, pady=6)
+        frm_top.pack(fill='x', padx=15, pady=10)
 
         ttk.Label(frm_top, text='Serial Port:').pack(side='left')
-        self.port_cb = ttk.Combobox(frm_top, values=self.controller.list_ports(), width=18)
-        self.port_cb.pack(side='left', padx=4)
+        self.port_cb = ttk.Combobox(frm_top, values=self.controller.list_ports(), width=20)
+        self.port_cb.pack(side='left', padx=8)
 
         ttk.Button(frm_top, text='Refresh', command=self.refresh_ports).pack(side='left')
-        ttk.Label(frm_top, text='Baud:').pack(side='left', padx=(8,0))
-        self.baud_entry = ttk.Entry(frm_top, width=8)
+        ttk.Label(frm_top, text='Baud:').pack(side='left', padx=(15,0))
+        self.baud_entry = ttk.Entry(frm_top, width=10)
         self.baud_entry.insert(0, '115200')
-        self.baud_entry.pack(side='left')
+        self.baud_entry.pack(side='left', padx=8)
 
         self.connect_btn = ttk.Button(frm_top, text='Connect', command=self.toggle_connect)
         self.connect_btn.pack(side='left', padx=8)
 
-        self.status_label = ttk.Label(frm_top, text='Disconnected', foreground='red')
-        self.status_label.pack(side='left', padx=8)
+        self.status_label = ttk.Label(frm_top, text='Disconnected', foreground='red', font=('Segoe UI', 10, 'bold'))
+        self.status_label.pack(side='left', padx=15)
+
+        # Notebook for improved organization
+        self.nb = ttk.Notebook(self)
+        self.nb.pack(fill='both', expand=True, padx=15, pady=(0, 15))
+
+        # Tab 1: Manual Control & Position
+        tab_manual = ttk.Frame(self.nb)
+        self.nb.add(tab_manual, text=' Manual Control ')
 
         # Position display
-        pos_frame = ttk.LabelFrame(self, text='Position')
-        pos_frame.pack(fill='x', padx=8, pady=6)
+        pos_frame = ttk.LabelFrame(tab_manual, text='Current Position')
+        pos_frame.pack(fill='x', padx=10, pady=10)
         self.pos_var = tk.StringVar(value='X: ?   Y: ?   Z: ?')
-        ttk.Label(pos_frame, textvariable=self.pos_var, font=('Consolas', 12)).pack(anchor='w', padx=6, pady=6)
+        ttk.Label(pos_frame, textvariable=self.pos_var, font=('Consolas', 14)).pack(anchor='w', padx=10, pady=10)
 
         # Jog controls
-        jog_frame = ttk.LabelFrame(self, text='Jog Controls')
-        jog_frame.pack(fill='x', padx=8, pady=6)
+        jog_frame = ttk.LabelFrame(tab_manual, text='Jog Controls')
+        jog_frame.pack(fill='x', padx=10, pady=10)
 
         step_frame = ttk.Frame(jog_frame)
-        step_frame.pack(anchor='w', padx=6, pady=4)
+        step_frame.pack(anchor='w', padx=10, pady=5)
         ttk.Label(step_frame, text='Step (mm):').pack(side='left')
-        self.step_entry = ttk.Entry(step_frame, width=6)
+        self.step_entry = ttk.Entry(step_frame, width=8)
         self.step_entry.insert(0, '10')
-        self.step_entry.pack(side='left', padx=4)
+        self.step_entry.pack(side='left', padx=8)
 
-        ttk.Label(step_frame, text='Feedrate (mm/min):').pack(side='left', padx=(12,0))
-        self.speed_entry = ttk.Entry(step_frame, width=8)
+        ttk.Label(step_frame, text='Feedrate (mm/min):').pack(side='left', padx=(20,0))
+        self.speed_entry = ttk.Entry(step_frame, width=10)
         self.speed_entry.insert(0, '1500')
-        self.speed_entry.pack(side='left', padx=4)
+        self.speed_entry.pack(side='left', padx=8)
 
         # Jog buttons grid
         grid = ttk.Frame(jog_frame)
-        grid.pack(padx=6, pady=6)
+        grid.pack(padx=10, pady=10)
 
-        btn_xp = ttk.Button(grid, text='X +', width=8, command=lambda: self.jog('X', True))
-        btn_xp.grid(row=0, column=2, padx=6, pady=6)
-        btn_xm = ttk.Button(grid, text='X -', width=8, command=lambda: self.jog('X', False))
-        btn_xm.grid(row=0, column=0, padx=6, pady=6)
+        btn_xp = ttk.Button(grid, text='X +', width=10, command=lambda: self.jog('X', True))
+        btn_xp.grid(row=0, column=2, padx=8, pady=8)
+        btn_xm = ttk.Button(grid, text='X -', width=10, command=lambda: self.jog('X', False))
+        btn_xm.grid(row=0, column=0, padx=8, pady=8)
 
-        btn_yp = ttk.Button(grid, text='Y +', width=8, command=lambda: self.jog('Y', True))
-        btn_yp.grid(row=1, column=2, padx=6, pady=6)
-        btn_ym = ttk.Button(grid, text='Y -', width=8, command=lambda: self.jog('Y', False))
-        btn_ym.grid(row=1, column=0, padx=6, pady=6)
+        btn_yp = ttk.Button(grid, text='Y +', width=10, command=lambda: self.jog('Y', True))
+        btn_yp.grid(row=1, column=2, padx=8, pady=8)
+        btn_ym = ttk.Button(grid, text='Y -', width=10, command=lambda: self.jog('Y', False))
+        btn_ym.grid(row=1, column=0, padx=8, pady=8)
 
-        btn_zp = ttk.Button(grid, text='Z +', width=8, command=lambda: self.jog('Z', True))
-        btn_zp.grid(row=2, column=2, padx=6, pady=6)
-        btn_zm = ttk.Button(grid, text='Z -', width=8, command=lambda: self.jog('Z', False))
-        btn_zm.grid(row=2, column=0, padx=6, pady=6)
+        btn_zp = ttk.Button(grid, text='Z +', width=10, command=lambda: self.jog('Z', True))
+        btn_zp.grid(row=2, column=2, padx=8, pady=8)
+        btn_zm = ttk.Button(grid, text='Z -', width=10, command=lambda: self.jog('Z', False))
+        btn_zm.grid(row=2, column=0, padx=8, pady=8)
 
-        ttk.Label(grid, text='Jog:').grid(row=0, column=1)
-        ttk.Label(grid, text='').grid(row=1, column=1)
-        ttk.Label(grid, text='').grid(row=2, column=1)
+        ttk.Label(grid, text='Jogging', font=('Segoe UI', 10)).grid(row=1, column=1)
 
         # Actions
-        actions = ttk.Frame(self)
-        actions.pack(fill='x', padx=8, pady=6)
-        ttk.Button(actions, text='Home (G28)', command=self.home).pack(side='left', padx=6)
-        ttk.Button(actions, text='Motors On (M17)', command=lambda: self.send_cmd('M17')).pack(side='left', padx=6)
-        ttk.Button(actions, text='Motors Off (M18)', command=lambda: self.send_cmd('M18')).pack(side='left', padx=6)
-        ttk.Button(actions, text='Emergency Stop (M112)', command=self.emergency_stop).pack(side='left', padx=6)
+        actions = ttk.Frame(tab_manual)
+        actions.pack(fill='x', padx=10, pady=10)
+        ttk.Button(actions, text='Home (G28)', command=self.home).pack(side='left', padx=8)
+        ttk.Button(actions, text='Motors On (M17)', command=lambda: self.send_cmd('M17')).pack(side='left', padx=8)
+        ttk.Button(actions, text='Motors Off (M18)', command=lambda: self.send_cmd('M18')).pack(side='left', padx=8)
+        ttk.Button(actions, text='Emergency Stop (M112)', command=self.emergency_stop).pack(side='left', padx=8)
 
-        # Console
-        console_frame = ttk.LabelFrame(self, text='Console')
-        console_frame.pack(fill='both', expand=True, padx=8, pady=6)
-        self.console_out = scrolledtext.ScrolledText(console_frame, height=10, state='disabled')
-        self.console_out.pack(fill='both', expand=True, padx=4, pady=4)
-        # Save/clear console buttons
+        # Tab 2: Console
+        tab_console = ttk.Frame(self.nb)
+        self.nb.add(tab_console, text=' Console ')
+
+        console_frame = ttk.LabelFrame(tab_console, text='Printer Output')
+        console_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        self.console_out = scrolledtext.ScrolledText(console_frame, height=15, state='disabled', font=('Consolas', 10))
+        self.console_out.pack(fill='both', expand=True, padx=5, pady=5)
+
         cbtn_frame = ttk.Frame(console_frame)
-        cbtn_frame.pack(fill='x', padx=4, pady=(0,4))
-        ttk.Button(cbtn_frame, text='Save Log', command=self.save_log).pack(side='left')
-        ttk.Button(cbtn_frame, text='Clear Log', command=self.clear_log).pack(side='left', padx=6)
+        cbtn_frame.pack(fill='x', padx=5, pady=5)
+        ttk.Button(cbtn_frame, text='Save Log', command=self.save_log).pack(side='left', padx=5)
+        ttk.Button(cbtn_frame, text='Clear Log', command=self.clear_log).pack(side='left', padx=5)
 
-        cmd_frame = ttk.Frame(console_frame)
-        cmd_frame.pack(fill='x', padx=4, pady=4)
+        cmd_frame = ttk.LabelFrame(tab_console, text='Manual Command')
+        cmd_frame.pack(fill='x', padx=10, pady=(0, 10))
         self.cmd_entry = ttk.Entry(cmd_frame)
-        self.cmd_entry.pack(side='left', fill='x', expand=True, padx=(0,6))
-        ttk.Button(cmd_frame, text='Send', command=self.send_cmd_from_entry).pack(side='left')
+        self.cmd_entry.pack(side='left', fill='x', expand=True, padx=10, pady=10)
+        ttk.Button(cmd_frame, text='Send', command=self.send_cmd_from_entry).pack(side='left', padx=10)
 
-        # G-code input area
-        gcode_frame = ttk.LabelFrame(self, text='G-code Input')
-        gcode_frame.pack(fill='both', expand=True, padx=8, pady=6)
-        self.gcode_in = scrolledtext.ScrolledText(gcode_frame, height=8)
-        self.gcode_in.pack(fill='both', expand=True, padx=4, pady=4)
+        # Tab 3: G-Code Input
+        tab_gcode = ttk.Frame(self.nb)
+        self.nb.add(tab_gcode, text=' G-Code Input ')
+
+        gcode_frame = ttk.LabelFrame(tab_gcode, text='G-Code Editor')
+        gcode_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        self.gcode_in = scrolledtext.ScrolledText(gcode_frame, height=15, font=('Consolas', 10))
+        self.gcode_in.pack(fill='both', expand=True, padx=5, pady=5)
 
         gcode_btns = ttk.Frame(gcode_frame)
-        gcode_btns.pack(fill='x', padx=4, pady=4)
+        gcode_btns.pack(fill='x', padx=5, pady=5)
         self.send_gcode_btn = ttk.Button(gcode_btns, text='Send G-code', command=self.send_gcode_from_text)
-        self.send_gcode_btn.pack(side='left')
+        self.send_gcode_btn.pack(side='left', padx=5)
         self.clear_gcode_btn = ttk.Button(gcode_btns, text='Clear', command=lambda: self.gcode_in.delete('1.0', 'end'))
-        self.clear_gcode_btn.pack(side='left', padx=6)
+        self.clear_gcode_btn.pack(side='left', padx=5)
         self.load_gcode_btn = ttk.Button(gcode_btns, text='Load File', command=self.load_gcode_from_file)
-        self.load_gcode_btn.pack(side='left', padx=6)
+        self.load_gcode_btn.pack(side='left', padx=5)
+
+        # Tab 4: Text to Plotter
+        tab_text_plotter = ttk.Frame(self.nb)
+        self.nb.add(tab_text_plotter, text=' Text to Plotter ')
 
         # Ensure widgets references for enable/disable
         self.widgets_to_toggle = [self.step_entry, self.speed_entry, btn_xp, btn_xm, btn_yp, btn_ym, btn_zp, btn_zm]
-        # add send buttons to toggled widgets so we won't allow GCode sending when disconnected
         self.widgets_to_toggle += [self.cmd_entry, self.send_gcode_btn, self.load_gcode_btn, self.gcode_in]
+
+        # Add the Text to Plotter section
+        self.create_text_plotter_section(tab_text_plotter)
 
     def refresh_ports(self):
         ports = self.controller.list_ports()
@@ -428,6 +455,95 @@ class App(tk.Tk):
                     pass
         # schedule next
         self.after(200, self._periodic_ui_update)
+
+    def create_text_plotter_section(self, parent):
+        """
+        Creates the 'Text to Plotter' UI section.
+        """
+        # 1) TEXT INPUT FIELD
+        input_frame = ttk.LabelFrame(parent, text='Text Input')
+        input_frame.pack(fill='both', expand=True, padx=15, pady=10)
+
+        # Large ScrolledText widget for normal text input
+        self.text_plotter_in = scrolledtext.ScrolledText(input_frame, height=8, font=('Segoe UI', 11))
+        self.text_plotter_in.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # 2) SPEECH TO TEXT BUTTON
+        stt_btn = ttk.Button(input_frame, text='Speech to Text', command=self.speech_to_text_placeholder)
+        stt_btn.pack(anchor='e', padx=10, pady=(0, 10))
+
+        # 3) G-CODE OUTPUT FIELD
+        output_frame = ttk.LabelFrame(parent, text='Generated G-Code (Read-only)')
+        output_frame.pack(fill='both', expand=True, padx=15, pady=10)
+
+        # Read-only ScrolledText for G-code output, visually separated
+        self.text_plotter_out = scrolledtext.ScrolledText(
+            output_frame, height=8, state='disabled', font=('Consolas', 10),
+            background='#f8f9fa'
+        )
+        self.text_plotter_out.pack(fill='both', expand=True, padx=10, pady=10)
+
+        # 4) BUTTON: "Convert to G-Code & Send"
+        self.convert_send_btn = ttk.Button(
+            parent, text='Convert to G-Code & Send',
+            command=self.convert_and_send_text
+        )
+        self.convert_send_btn.pack(pady=15)
+
+        # Add new interactive widgets to the toggle list
+        self.widgets_to_toggle += [self.text_plotter_in, stt_btn, self.convert_send_btn]
+
+    def convert_and_send_text(self):
+        """
+        Gets text, generates G-code, displays it, and sends to printer.
+        """
+        text = self.text_plotter_in.get('1.0', 'end').strip()
+        if not text:
+            messagebox.showinfo('No Text', 'Please enter some text to convert.')
+            return
+
+        gcode_lines = self.fake_generate_gcode(text)
+
+        # Update output field
+        self.text_plotter_out.config(state='normal')
+        self.text_plotter_out.delete('1.0', 'end')
+        self.text_plotter_out.insert('1.0', '\n'.join(gcode_lines))
+        self.text_plotter_out.config(state='disabled')
+
+        # Send G-code
+        if not (self.controller.ser and self.controller.ser.is_open):
+            messagebox.showwarning('Not connected', 'Please connect to a serial port first.')
+            return
+
+        t = threading.Thread(target=self._send_gcode_lines, args=(gcode_lines,), daemon=True)
+        t.start()
+
+    def speech_to_text_placeholder(self):
+        """
+        Placeholder for future speech-to-text integration.
+        """
+        # TODO: Integrate real speech-to-text here
+        placeholder_text = "Speech-to-text placeholder"
+        self.text_plotter_in.insert('end', placeholder_text + "\n")
+        self.text_plotter_in.see('end')
+        # Log the action both in console and UI log
+        print(f"Speech-to-text action logged: {placeholder_text}")
+        self.log(f"ACTION: {placeholder_text}")
+
+    def fake_generate_gcode(self, text):
+        """
+        Placeholder for real text-to-G-code conversion.
+        This will be implemented later.
+        """
+        # For now just simulate output:
+        return [
+            "; --- GENERATED GCODE PLACEHOLDER ---",
+            f"; Original text: {text}",
+            "G28",
+            "G1 X10 Y10 F1500",
+            "G1 X20 Y20",
+            "; --- END ---"
+        ]
 
     def on_close(self):
         if messagebox.askokcancel('Quit', 'Close controller and disconnect?'):

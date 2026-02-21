@@ -8,6 +8,7 @@ Features:
  - Home, Motors On/Off, Emergency Stop
  - Live position readout (polls M114)
  - Simple command console
+ - Text to Plotter section
 
 Dependencies:
  - pyserial
@@ -32,6 +33,17 @@ import serial.tools.list_ports
 import threading
 import time
 import queue
+
+# --- THEME CONFIGURATION ---
+THEME = {
+    "bg_main": "#1e1e1e",
+    "bg_panel": "#252526",
+    "bg_widget": "#2d2d2d",
+    "fg_primary": "#ffffff",
+    "fg_secondary": "#aaaaaa",
+    "accent": "#4cc2ff",
+    "danger": "#ff4c4c"
+}
 
 POLL_INTERVAL = 1.0  # seconds between position polls
 
@@ -125,59 +137,126 @@ class PrinterController:
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('3D Printer Control - Tkinter')
+        self.title('3D Printer Control - Professional Dark Edition')
         self.geometry('950x850')
+        self.configure(bg=THEME["bg_main"])
+
         self.controller = PrinterController()
+        self.widgets_to_toggle = []
+
+        self.configure_styles()
         self.create_widgets()
+        self.configure_layout()
+
         # start with disabled jog widgets until connected
         self.set_disconnected()
         self.after(200, self._periodic_ui_update)
 
-    def create_widgets(self):
-        # Modern look and feel
+    def configure_styles(self):
+        """
+        Configures centralized ttk styles using the THEME dictionary.
+        """
         style = ttk.Style(self)
         style.theme_use('clam')
-        style.configure('TLabelframe', padding=15)
-        style.configure('TLabelframe.Label', font=('Segoe UI', 11, 'bold') if 'win' in self.tk.call('tk', 'windowingsystem') else ('Helvetica', 11, 'bold'))
-        style.configure('TButton', padding=6)
-        style.configure('TFrame', padding=2)
 
-        # Main Layout: Top connection bar, and a Notebook for other features
-        frm_top = ttk.Frame(self)
-        frm_top.pack(fill='x', padx=15, pady=10)
+        # General background settings
+        style.configure(".", background=THEME["bg_panel"], foreground=THEME["fg_primary"])
+        style.configure("TFrame", background=THEME["bg_panel"])
 
-        ttk.Label(frm_top, text='Serial Port:').pack(side='left')
-        self.port_cb = ttk.Combobox(frm_top, values=self.controller.list_ports(), width=20)
+        # LabelFrame styling
+        style.configure("TLabelframe", background=THEME["bg_panel"], bordercolor=THEME["bg_widget"], padding=15)
+        style.configure("TLabelframe.Label", background=THEME["bg_panel"], foreground=THEME["accent"], font=('Segoe UI', 11, 'bold'))
+
+        # Label styling
+        style.configure("TLabel", background=THEME["bg_panel"], foreground=THEME["fg_primary"])
+        style.configure("Status.TLabel", foreground=THEME["danger"], font=('Segoe UI', 10, 'bold'))
+        style.configure("Position.TLabel", font=('Consolas', 14), foreground=THEME["accent"])
+
+        # Button styling
+        style.configure("TButton", background=THEME["accent"], foreground=THEME["bg_main"], padding=6, font=('Segoe UI', 10, 'bold'))
+        style.map("TButton",
+                  background=[('active', THEME["bg_widget"]), ('disabled', THEME["bg_widget"])],
+                  foreground=[('active', THEME["accent"]), ('disabled', THEME["fg_secondary"])])
+
+        style.configure("Danger.TButton", background=THEME["danger"], foreground=THEME["fg_primary"])
+        style.map("Danger.TButton", background=[('active', THEME["bg_widget"])], foreground=[('active', THEME["danger"])])
+
+        # Entry and Combobox styling
+        style.configure("TEntry", fieldbackground=THEME["bg_widget"], foreground=THEME["fg_primary"], bordercolor=THEME["bg_widget"])
+        style.configure("TCombobox", fieldbackground=THEME["bg_widget"], foreground=THEME["fg_primary"], bordercolor=THEME["bg_widget"])
+        style.map("TCombobox", fieldbackground=[('readonly', THEME["bg_widget"])], foreground=[('readonly', THEME["fg_primary"])])
+
+        # Notebook styling
+        style.configure("TNotebook", background=THEME["bg_main"], bordercolor=THEME["bg_main"])
+        style.configure("TNotebook.Tab", background=THEME["bg_panel"], foreground=THEME["fg_secondary"], padding=[15, 5])
+        style.map("TNotebook.Tab", background=[('selected', THEME["bg_widget"])], foreground=[('selected', THEME["accent"])])
+
+    def create_widgets(self):
+        """
+        Orchestrates widget creation across different sections.
+        """
+        # Initialize Notebook
+        self.nb = ttk.Notebook(self)
+
+        # Create Tab Frames
+        self.tab_manual = ttk.Frame(self.nb)
+        self.tab_console = ttk.Frame(self.nb)
+        self.tab_gcode = ttk.Frame(self.nb)
+        self.tab_text_plotter = ttk.Frame(self.nb)
+
+        self.nb.add(self.tab_manual, text=' Manual Control ')
+        self.nb.add(self.tab_console, text=' Console ')
+        self.nb.add(self.tab_gcode, text=' G-Code Input ')
+        self.nb.add(self.tab_text_plotter, text=' Text to Plotter ')
+
+        # Call section methods
+        self.create_connection_section()
+        self.create_jog_section(self.tab_manual)
+        self.create_console_section(self.tab_console)
+        self.create_gcode_section(self.tab_gcode)
+        self.create_text_to_plotter_section(self.tab_text_plotter)
+
+    def configure_layout(self):
+        """
+        Assembles the main application layout.
+        """
+        self.frm_top.pack(fill='x', padx=15, pady=10)
+        self.nb.pack(fill='both', expand=True, padx=15, pady=(0, 15))
+
+    def create_connection_section(self):
+        """
+        Creates the top connection bar.
+        """
+        self.frm_top = ttk.Frame(self)
+
+        ttk.Label(self.frm_top, text='Serial Port:').pack(side='left')
+        self.port_cb = ttk.Combobox(self.frm_top, values=self.controller.list_ports(), width=20)
         self.port_cb.pack(side='left', padx=8)
 
-        ttk.Button(frm_top, text='Refresh', command=self.refresh_ports).pack(side='left')
-        ttk.Label(frm_top, text='Baud:').pack(side='left', padx=(15,0))
-        self.baud_entry = ttk.Entry(frm_top, width=10)
+        ttk.Button(self.frm_top, text='Refresh', command=self.refresh_ports).pack(side='left')
+        ttk.Label(self.frm_top, text='Baud:').pack(side='left', padx=(15,0))
+        self.baud_entry = ttk.Entry(self.frm_top, width=10)
         self.baud_entry.insert(0, '115200')
         self.baud_entry.pack(side='left', padx=8)
 
-        self.connect_btn = ttk.Button(frm_top, text='Connect', command=self.toggle_connect)
+        self.connect_btn = ttk.Button(self.frm_top, text='Connect', command=self.toggle_connect)
         self.connect_btn.pack(side='left', padx=8)
 
-        self.status_label = ttk.Label(frm_top, text='Disconnected', foreground='red', font=('Segoe UI', 10, 'bold'))
+        self.status_label = ttk.Label(self.frm_top, text='Disconnected', style="Status.TLabel")
         self.status_label.pack(side='left', padx=15)
 
-        # Notebook for improved organization
-        self.nb = ttk.Notebook(self)
-        self.nb.pack(fill='both', expand=True, padx=15, pady=(0, 15))
-
-        # Tab 1: Manual Control & Position
-        tab_manual = ttk.Frame(self.nb)
-        self.nb.add(tab_manual, text=' Manual Control ')
-
+    def create_jog_section(self, parent):
+        """
+        Creates the manual jog controls section.
+        """
         # Position display
-        pos_frame = ttk.LabelFrame(tab_manual, text='Current Position')
+        pos_frame = ttk.LabelFrame(parent, text='Current Position')
         pos_frame.pack(fill='x', padx=10, pady=10)
         self.pos_var = tk.StringVar(value='X: ?   Y: ?   Z: ?')
-        ttk.Label(pos_frame, textvariable=self.pos_var, font=('Consolas', 14)).pack(anchor='w', padx=10, pady=10)
+        ttk.Label(pos_frame, textvariable=self.pos_var, style="Position.TLabel").pack(anchor='w', padx=10, pady=10)
 
         # Jog controls
-        jog_frame = ttk.LabelFrame(tab_manual, text='Jog Controls')
+        jog_frame = ttk.LabelFrame(parent, text='Jog Controls')
         jog_frame.pack(fill='x', padx=10, pady=10)
 
         step_frame = ttk.Frame(jog_frame)
@@ -211,23 +290,30 @@ class App(tk.Tk):
         btn_zm = ttk.Button(grid, text='Z -', width=10, command=lambda: self.jog('Z', False))
         btn_zm.grid(row=2, column=0, padx=8, pady=8)
 
-        ttk.Label(grid, text='Jogging', font=('Segoe UI', 10)).grid(row=1, column=1)
+        ttk.Label(grid, text='Jogging', foreground=THEME["fg_secondary"]).grid(row=1, column=1)
 
         # Actions
-        actions = ttk.Frame(tab_manual)
+        actions = ttk.Frame(parent)
         actions.pack(fill='x', padx=10, pady=10)
         ttk.Button(actions, text='Home (G28)', command=self.home).pack(side='left', padx=8)
         ttk.Button(actions, text='Motors On (M17)', command=lambda: self.send_cmd('M17')).pack(side='left', padx=8)
         ttk.Button(actions, text='Motors Off (M18)', command=lambda: self.send_cmd('M18')).pack(side='left', padx=8)
-        ttk.Button(actions, text='Emergency Stop (M112)', command=self.emergency_stop).pack(side='left', padx=8)
+        ttk.Button(actions, text='Emergency Stop (M112)', command=self.emergency_stop, style="Danger.TButton").pack(side='left', padx=8)
 
-        # Tab 2: Console
-        tab_console = ttk.Frame(self.nb)
-        self.nb.add(tab_console, text=' Console ')
+        self.widgets_to_toggle += [self.step_entry, self.speed_entry, btn_xp, btn_xm, btn_yp, btn_ym, btn_zp, btn_zm]
 
-        console_frame = ttk.LabelFrame(tab_console, text='Printer Output')
+    def create_console_section(self, parent):
+        """
+        Creates the printer console section.
+        """
+        console_frame = ttk.LabelFrame(parent, text='Printer Output')
         console_frame.pack(fill='both', expand=True, padx=10, pady=10)
-        self.console_out = scrolledtext.ScrolledText(console_frame, height=15, state='disabled', font=('Consolas', 10))
+
+        self.console_out = scrolledtext.ScrolledText(
+            console_frame, height=15, state='disabled', font=('Consolas', 10),
+            bg=THEME["bg_widget"], fg=THEME["fg_primary"], insertbackground=THEME["fg_primary"],
+            borderwidth=0, highlightthickness=0
+        )
         self.console_out.pack(fill='both', expand=True, padx=5, pady=5)
 
         cbtn_frame = ttk.Frame(console_frame)
@@ -235,19 +321,26 @@ class App(tk.Tk):
         ttk.Button(cbtn_frame, text='Save Log', command=self.save_log).pack(side='left', padx=5)
         ttk.Button(cbtn_frame, text='Clear Log', command=self.clear_log).pack(side='left', padx=5)
 
-        cmd_frame = ttk.LabelFrame(tab_console, text='Manual Command')
+        cmd_frame = ttk.LabelFrame(parent, text='Manual Command')
         cmd_frame.pack(fill='x', padx=10, pady=(0, 10))
         self.cmd_entry = ttk.Entry(cmd_frame)
         self.cmd_entry.pack(side='left', fill='x', expand=True, padx=10, pady=10)
         ttk.Button(cmd_frame, text='Send', command=self.send_cmd_from_entry).pack(side='left', padx=10)
 
-        # Tab 3: G-Code Input
-        tab_gcode = ttk.Frame(self.nb)
-        self.nb.add(tab_gcode, text=' G-Code Input ')
+        self.widgets_to_toggle += [self.cmd_entry]
 
-        gcode_frame = ttk.LabelFrame(tab_gcode, text='G-Code Editor')
+    def create_gcode_section(self, parent):
+        """
+        Creates the G-code editor section.
+        """
+        gcode_frame = ttk.LabelFrame(parent, text='G-Code Editor')
         gcode_frame.pack(fill='both', expand=True, padx=10, pady=10)
-        self.gcode_in = scrolledtext.ScrolledText(gcode_frame, height=15, font=('Consolas', 10))
+
+        self.gcode_in = scrolledtext.ScrolledText(
+            gcode_frame, height=15, font=('Consolas', 10),
+            bg=THEME["bg_widget"], fg=THEME["fg_primary"], insertbackground=THEME["fg_primary"],
+            borderwidth=0, highlightthickness=0
+        )
         self.gcode_in.pack(fill='both', expand=True, padx=5, pady=5)
 
         gcode_btns = ttk.Frame(gcode_frame)
@@ -259,16 +352,39 @@ class App(tk.Tk):
         self.load_gcode_btn = ttk.Button(gcode_btns, text='Load File', command=self.load_gcode_from_file)
         self.load_gcode_btn.pack(side='left', padx=5)
 
-        # Tab 4: Text to Plotter
-        tab_text_plotter = ttk.Frame(self.nb)
-        self.nb.add(tab_text_plotter, text=' Text to Plotter ')
+        self.widgets_to_toggle += [self.send_gcode_btn, self.load_gcode_btn, self.gcode_in]
 
-        # Ensure widgets references for enable/disable
-        self.widgets_to_toggle = [self.step_entry, self.speed_entry, btn_xp, btn_xm, btn_yp, btn_ym, btn_zp, btn_zm]
-        self.widgets_to_toggle += [self.cmd_entry, self.send_gcode_btn, self.load_gcode_btn, self.gcode_in]
+    def create_text_to_plotter_section(self, parent):
+        """
+        Creates the 'Text to Plotter' section.
+        """
+        input_frame = ttk.LabelFrame(parent, text='Text Input')
+        input_frame.pack(fill='both', expand=True, padx=15, pady=10)
 
-        # Add the Text to Plotter section
-        self.create_text_plotter_section(tab_text_plotter)
+        self.text_plotter_in = scrolledtext.ScrolledText(
+            input_frame, height=8, font=('Segoe UI', 11),
+            bg=THEME["bg_widget"], fg=THEME["fg_primary"], insertbackground=THEME["fg_primary"],
+            borderwidth=0, highlightthickness=0
+        )
+        self.text_plotter_in.pack(fill='both', expand=True, padx=10, pady=10)
+
+        stt_btn = ttk.Button(input_frame, text='Speech to Text', command=self.speech_to_text_placeholder)
+        stt_btn.pack(anchor='e', padx=10, pady=(0, 10))
+
+        output_frame = ttk.LabelFrame(parent, text='Generated G-Code (Read-only)')
+        output_frame.pack(fill='both', expand=True, padx=15, pady=10)
+
+        self.text_plotter_out = scrolledtext.ScrolledText(
+            output_frame, height=8, state='disabled', font=('Consolas', 10),
+            bg=THEME["bg_widget"], fg=THEME["fg_secondary"], insertbackground=THEME["fg_primary"],
+            borderwidth=0, highlightthickness=0
+        )
+        self.text_plotter_out.pack(fill='both', expand=True, padx=10, pady=10)
+
+        self.convert_send_btn = ttk.Button(parent, text='Convert to G-Code & Send', command=self.convert_and_send_text)
+        self.convert_send_btn.pack(pady=15)
+
+        self.widgets_to_toggle += [self.text_plotter_in, stt_btn, self.convert_send_btn]
 
     def refresh_ports(self):
         ports = self.controller.list_ports()
@@ -298,13 +414,13 @@ class App(tk.Tk):
 
     def set_connected(self):
         self.connect_btn.config(text='Disconnect')
-        self.status_label.config(text='Connected', foreground='green')
+        self.status_label.config(text='Connected', foreground=THEME["accent"])
         for w in self.widgets_to_toggle:
             w.config(state='normal')
 
     def set_disconnected(self):
         self.connect_btn.config(text='Connect')
-        self.status_label.config(text='Disconnected', foreground='red')
+        self.status_label.config(text='Disconnected', foreground=THEME["danger"])
         for w in self.widgets_to_toggle:
             w.config(state='disabled')
 
@@ -455,43 +571,6 @@ class App(tk.Tk):
                     pass
         # schedule next
         self.after(200, self._periodic_ui_update)
-
-    def create_text_plotter_section(self, parent):
-        """
-        Creates the 'Text to Plotter' UI section.
-        """
-        # 1) TEXT INPUT FIELD
-        input_frame = ttk.LabelFrame(parent, text='Text Input')
-        input_frame.pack(fill='both', expand=True, padx=15, pady=10)
-
-        # Large ScrolledText widget for normal text input
-        self.text_plotter_in = scrolledtext.ScrolledText(input_frame, height=8, font=('Segoe UI', 11))
-        self.text_plotter_in.pack(fill='both', expand=True, padx=10, pady=10)
-
-        # 2) SPEECH TO TEXT BUTTON
-        stt_btn = ttk.Button(input_frame, text='Speech to Text', command=self.speech_to_text_placeholder)
-        stt_btn.pack(anchor='e', padx=10, pady=(0, 10))
-
-        # 3) G-CODE OUTPUT FIELD
-        output_frame = ttk.LabelFrame(parent, text='Generated G-Code (Read-only)')
-        output_frame.pack(fill='both', expand=True, padx=15, pady=10)
-
-        # Read-only ScrolledText for G-code output, visually separated
-        self.text_plotter_out = scrolledtext.ScrolledText(
-            output_frame, height=8, state='disabled', font=('Consolas', 10),
-            background='#f8f9fa'
-        )
-        self.text_plotter_out.pack(fill='both', expand=True, padx=10, pady=10)
-
-        # 4) BUTTON: "Convert to G-Code & Send"
-        self.convert_send_btn = ttk.Button(
-            parent, text='Convert to G-Code & Send',
-            command=self.convert_and_send_text
-        )
-        self.convert_send_btn.pack(pady=15)
-
-        # Add new interactive widgets to the toggle list
-        self.widgets_to_toggle += [self.text_plotter_in, stt_btn, self.convert_send_btn]
 
     def convert_and_send_text(self):
         """

@@ -68,26 +68,35 @@ class PlotterUI(tk.Tk):
 
         ttk.Label(whisper_frame, text="Threads:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.threads_var = tk.IntVar(value=12)
-        ttk.Entry(whisper_frame, textvariable=self.threads_var).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        self.threads_entry = ttk.Entry(whisper_frame, textvariable=self.threads_var)
+        self.threads_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+        ttk.Label(whisper_frame, text="Gerät:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.device_var = tk.StringVar(value="auto")
+        self.device_cb = ttk.Combobox(whisper_frame, textvariable=self.device_var, values=["auto", "cpu", "cuda"])
+        self.device_cb.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 
         self.voice_btn = ttk.Button(whisper_frame, text="Spracherkennung starten", command=self.toggle_voice)
-        self.voice_btn.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.voice_btn.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         # 3. Plotter Settings
         settings_frame = ttk.LabelFrame(left_panel, text="Plotter-Einstellungen")
         settings_frame.pack(fill="x", pady=10)
 
         ttk.Label(settings_frame, text="Stift HOCH (mm):").grid(row=0, column=0, padx=5, pady=2, sticky="w")
-        self.z_up_var = tk.DoubleVar(value=5.0)
-        ttk.Entry(settings_frame, textvariable=self.z_up_var, width=8).grid(row=0, column=1, padx=5, pady=2)
+        self.z_up_var = tk.StringVar(value="5.0")
+        self.z_up_entry = ttk.Entry(settings_frame, textvariable=self.z_up_var, width=8)
+        self.z_up_entry.grid(row=0, column=1, padx=5, pady=2)
 
         ttk.Label(settings_frame, text="Stift RUNTER (mm):").grid(row=1, column=0, padx=5, pady=2, sticky="w")
-        self.z_down_var = tk.DoubleVar(value=0.0)
-        ttk.Entry(settings_frame, textvariable=self.z_down_var, width=8).grid(row=1, column=1, padx=5, pady=2)
+        self.z_down_var = tk.StringVar(value="0.0")
+        self.z_down_entry = ttk.Entry(settings_frame, textvariable=self.z_down_var, width=8)
+        self.z_down_entry.grid(row=1, column=1, padx=5, pady=2)
 
         ttk.Label(settings_frame, text="Feedrate:").grid(row=2, column=0, padx=5, pady=2, sticky="w")
-        self.feed_var = tk.IntVar(value=1500)
-        ttk.Entry(settings_frame, textvariable=self.feed_var, width=8).grid(row=2, column=1, padx=5, pady=2)
+        self.feed_var = tk.StringVar(value="1500")
+        self.feed_entry = ttk.Entry(settings_frame, textvariable=self.feed_var, width=8)
+        self.feed_entry.grid(row=2, column=1, padx=5, pady=2)
 
         ttk.Button(settings_frame, text="Speichern", command=self.save_settings).grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
@@ -131,23 +140,69 @@ class PlotterUI(tk.Tk):
                 self.port_var.set(cfg.get("plotter", {}).get("port", ""))
                 self.model_var.set(cfg.get("whisper", {}).get("model_size", "medium"))
                 self.threads_var.set(cfg.get("whisper", {}).get("threads", 12))
+                self.device_var.set(cfg.get("whisper", {}).get("device", "auto"))
                 self.z_up_var.set(cfg.get("plotter", {}).get("z_up", 5.0))
                 self.z_down_var.set(cfg.get("plotter", {}).get("z_down", 0.0))
                 self.feed_var.set(cfg.get("plotter", {}).get("feedrate", 1500))
         except:
             pass
 
+    def validate_fields(self):
+        """Validiert die Eingabefelder und gibt visuelles Feedback."""
+        valid = True
+        # Liste der zu validierenden Felder: (Variable, Widget, Label-Name)
+        fields = [
+            (self.z_up_var, self.z_up_entry, "Stift HOCH"),
+            (self.z_down_var, self.z_down_entry, "Stift RUNTER"),
+            (self.feed_var, self.feed_entry, "Feedrate"),
+            (self.port_var, self.port_cb, "Port")
+        ]
+
+        # Style zurücksetzen
+        style = ttk.Style()
+        style.configure("Invalid.TEntry", fieldbackground="red")
+        style.configure("Invalid.TCombobox", fieldbackground="red")
+
+        for var, widget, name in fields:
+            val = var.get().strip()
+            if not val:
+                # Tkinter Entry Hintergrundfarbe ändern
+                if isinstance(widget, ttk.Entry) or isinstance(widget, ttk.Combobox):
+                    widget.configure(style="Invalid.TEntry" if isinstance(widget, ttk.Entry) else "Invalid.TCombobox")
+
+                # Fallback für Standard-Entry falls ttk Style nicht greift
+                try: widget.config(background="red")
+                except: pass
+
+                self.log(f"WARNUNG: Feld '{name}' muss ausgefüllt werden.")
+                valid = False
+            else:
+                # Hintergrund zurücksetzen
+                if isinstance(widget, ttk.Entry) or isinstance(widget, ttk.Combobox):
+                    widget.configure(style="TEntry" if isinstance(widget, ttk.Entry) else "TCombobox")
+                try: widget.config(background="white")
+                except: pass
+
+        if not valid:
+            messagebox.showwarning("Eingabefehler", "Einige Felder müssen ausgefüllt werden.")
+
+        return valid
+
     def save_settings(self):
+        if not self.validate_fields():
+            return
+
         try:
             with open("data/config.json", "r") as f:
                 cfg = json.load(f)
 
             cfg["plotter"]["port"] = self.port_var.get()
-            cfg["plotter"]["z_up"] = self.z_up_var.get()
-            cfg["plotter"]["z_down"] = self.z_down_var.get()
-            cfg["plotter"]["feedrate"] = self.feed_var.get()
+            cfg["plotter"]["z_up"] = float(self.z_up_var.get())
+            cfg["plotter"]["z_down"] = float(self.z_down_var.get())
+            cfg["plotter"]["feedrate"] = int(self.feed_var.get())
             cfg["whisper"]["model_size"] = self.model_var.get()
             cfg["whisper"]["threads"] = self.threads_var.get()
+            cfg["whisper"]["device"] = self.device_var.get()
 
             with open("data/config.json", "w") as f:
                 json.dump(cfg, f, indent=4)
@@ -243,6 +298,9 @@ class PlotterUI(tk.Tk):
             self.canvas.create_line(points, fill="blue", width=1)
 
     def start_plot(self):
+        if not self.validate_fields():
+            return
+
         if not self.current_paths:
             messagebox.showwarning("Kein Text", "Bitte geben Sie Text ein oder nutzen Sie die Spracherkennung.")
             return

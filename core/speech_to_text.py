@@ -53,31 +53,44 @@ class SpeechRecognizer:
                 config = json.load(f)
                 whisper_cfg = config.get("whisper", {})
                 self.model_size = whisper_cfg.get("model_size", "medium")
-                self.device = whisper_cfg.get("device", "cpu")
+                self.device = whisper_cfg.get("device", "auto") # Standardmäßig "auto"
                 self.threads = whisper_cfg.get("threads", 12)
                 self.language = whisper_cfg.get("language", "de")
+
+                # Automatische GPU-Erkennung falls "auto" gesetzt ist
+                if self.device == "auto":
+                    self.device = "cuda" if torch.cuda.is_available() else "cpu"
+                    print(f"Automatische Geräte-Erkennung: Nutze {self.device.upper()}")
+
         except Exception as e:
             print(f"Fehler beim Laden der Konfig: {e}")
             self.model_size = "medium"
-            self.device = "cpu"
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
             self.threads = 12
             self.language = "de"
 
     def _apply_thread_settings(self):
-        """Setzt die CPU-Threads für Whisper und Torch."""
-        os.environ["OMP_NUM_THREADS"] = str(self.threads)
-        os.environ["MKL_NUM_THREADS"] = str(self.threads)
-        torch.set_num_threads(self.threads)
-        torch.set_num_interop_threads(self.threads)
+        """Setzt die CPU-Threads für Whisper und Torch (nur relevant für CPU-Modus)."""
+        if self.device == "cpu":
+            os.environ["OMP_NUM_THREADS"] = str(self.threads)
+            os.environ["MKL_NUM_THREADS"] = str(self.threads)
+            torch.set_num_threads(self.threads)
+            torch.set_num_interop_threads(self.threads)
 
     def load_model(self, model_size=None, device=None):
         """Lädt das Whisper-Modell."""
         if model_size: self.model_size = model_size
         if device: self.device = device
 
-        print(f"Lade Whisper Modell '{self.model_size}' auf {self.device}...")
+        # Sicherstellen, dass das Gerät verfügbar ist
+        if self.device == "cuda" and not torch.cuda.is_available():
+            print("Warnung: CUDA angefordert, aber nicht verfügbar. Fallback auf CPU.")
+            self.device = "cpu"
+
+        print(f"Lade Whisper Modell '{self.model_size}' auf {self.device.upper()}...")
+        # fp16 ist nur für GPUs empfohlen, auf CPU kann es zu Fehlern führen
         self.model = whisper.load_model(self.model_size, device=self.device)
-        print("Modell geladen.")
+        print(f"Modell '{self.model_size}' erfolgreich geladen.")
 
     def _audio_callback(self, indata, frames, time_info, status):
         """Wird vom sounddevice Stream aufgerufen, wenn neue Audiodaten vorliegen."""

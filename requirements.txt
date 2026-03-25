@@ -4,4 +4,7 @@ sounddevice
 pyserial
 torch
 psutil
-hershey-fonts
+Hershey-Fonts
+# Hinweis für GPU-Nutzung:
+# Für CUDA-Support muss torch manuell mit der passenden Version installiert werden.
+# Beispiel: pip install torch --index-url https://download.pytorch.org/whl/cu121

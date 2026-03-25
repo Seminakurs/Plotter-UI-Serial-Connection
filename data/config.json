@@ -1,7 +1,7 @@
 {
     "whisper": {
         "model_size": "medium",
-        "device": "cpu",
+        "device": "auto",
         "threads": 12,
         "language": "de"
     },

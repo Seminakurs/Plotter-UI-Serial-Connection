@@ -1,0 +1,7 @@
+openai-whisper
+numpy
+sounddevice
+pyserial
+torch
+psutil
+hershey-fonts

@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*$py.class
+data/input/audio/*
+!data/input/audio/.gitkeep
+data/input/images/*
+!data/input/images/.gitkeep
+data/input/text/*
+!data/input/text/.gitkeep
+data/output/gcode/*
+!data/output/gcode/.gitkeep
+.env
+.vscode/

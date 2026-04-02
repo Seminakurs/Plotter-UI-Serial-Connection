@@ -18,8 +18,10 @@ Ein System zur Umwandlung von gesprochener Sprache in G-Code für Stift-Plotter 
 
 ### 1. Repository klonen
 ```bash
-git clone <repository-url>
-cd project_root
+git clone https://github.com/Seminakurs/Plotter-UI-Serial-Connection.git
+md C:\Plooter
+cd C:\Plooter
+
 ```
 
 ### 2. Abhängigkeiten installieren

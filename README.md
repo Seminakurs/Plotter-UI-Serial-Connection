@@ -1,6 +1,6 @@
 # Voice-to-Plotter 🗣✍️
 
-Ein System zur Umwandlung von gesprochener Sprache in G-Code für Stift-Plotter (oder 3D-Drucker mit aufgesetztem Stift). Das Programm nutzt OpenAI Whisper zur lokalen Spracherkennung und wandelt den Text in präzise Vektorpfade (Hershey-Fonts) um.
+Ein System zur Umwandlung von gesprochener Sprache in G-Code für Stift-Plotter (oder 3D-Drucker mit aufgesetztem Stift). Das Programm nutzt OpenAI Whisper zur lokalen Spracherkennung und wandelt den Text in präzise Vektorpfade (zurzeit nutr Hershey-Fonts) um.
 
 ## 📋 Systemvoraussetzungen
 

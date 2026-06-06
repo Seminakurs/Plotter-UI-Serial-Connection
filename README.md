@@ -28,6 +28,7 @@ git clone https://github.com/Seminakurs/Plotter-UI-Serial-Connection.git
 ### 2. Abhängigkeiten installieren
 Zuerst die Standard-Abhängigkeiten:
 ```bash
+cd C:\Plooter\Plotter-UI-Serial-Connection
 pip install -r requirements.txt
 ```
 

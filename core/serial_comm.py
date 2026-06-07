@@ -35,11 +35,16 @@ class SerialPlotter:
 
     def list_ports(self):
         """Gibt eine Liste der verfügbaren COM-Ports zurück."""
-        return [p.device for p in serial.tools.list_ports.comports()]
+        ports = []
+        for p in serial.tools.list_ports.comports():
+            label = p.device
+            if p.description and p.description != "n/a":
+                label = f"{p.device} — {p.description}"
+            ports.append(label)
+        return ports
 
     def connect(self, port=None, baudrate=None):
-        """Verbindet den Plotter über die serielle Schnittstelle."""
-        if port: self.port = port
+        if port: self.port = port.split(" — ")[0].strip()  # strip description, keep only "COM5"
         if baudrate: self.baudrate = baudrate
 
         if not self.port:
@@ -89,8 +94,8 @@ class SerialPlotter:
             self._log(f">>> {clean_line}")
 
             # Auf Bestätigung warten
-            while True:
-                response = self.ser.readline().decode().strip()
+            while self.running:  # ← check flag every iteration
+                response = self.ser.readline().decode().strip()  # timeout=1 on Serial means this returns after 1s max
                 if response:
                     self._log(f"<<< {response}")
                     if response.lower().startswith("ok"):
@@ -98,7 +103,7 @@ class SerialPlotter:
                     elif "error" in response.lower():
                         self._log(f"Plotter Fehler: {response}")
                         return False
-                time.sleep(0.01)
+            return False
         except Exception as e:
             self._log(f"Fehler beim Senden: {e}")
             return False
@@ -125,9 +130,9 @@ class SerialPlotter:
     def stop_plotting(self):
         """Stoppt den aktuellen Plot-Vorgang."""
         self.running = False
-        if self.worker_thread:
-            self.worker_thread.join(timeout=1)
-            self.worker_thread = None
+        # Do NOT join — we need to return immediately so the
+        # emergency M112 in ui_main can be sent right away
+        self.worker_thread = None
         self._log("Plotting gestoppt.")
 
     def _plot_worker(self, gcode_lines):

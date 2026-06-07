@@ -12,10 +12,49 @@ from core.serial_comm import SerialPlotter
 
 class PlotterUI(tk.Tk):
     def __init__(self):
+        print("MeineKlasse wurde erstellt")
         super().__init__()
-        self.title("Voice-to-Plotter Controller")
-        self.geometry("1000x700")
+        # ── THEME ── change colors here, nowhere else ──────────────────────
+        self.THEME = {
+            "bg":           "#1e1e1e",   # window / panel background
+            "bg_widget":    "#2d2d2d",   # entry / combobox / text fields
+            "bg_log":       "#141414",   # log console background
+            "bg_canvas":    "#2d2d2d",   # preview canvas
+            "bg_button":    "#3a3a3a",   # button face
+            "bg_button_hover": "#505050",
+            "fg":           "#d4d4d4",   # normal text
+            "fg_accent":    "#9cdcfe",   # labels, log text, section titles
+            "fg_error":     "#f44747",   # validation error highlight
+            "fg_plot_line": "#4ec9b0",   # vector preview lines on canvas
+            "border":       "#444444",
+        }
+        T = self.THEME  # shorthand used below
 
+        self.configure(bg=T["bg"])
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(".",
+            background=T["bg"], foreground=T["fg"],
+            fieldbackground=T["bg_widget"], bordercolor=T["border"],
+            darkcolor=T["bg"], lightcolor=T["bg_widget"])
+        style.configure("TLabelframe",       background=T["bg"],   foreground=T["fg"])
+        style.configure("TLabelframe.Label", background=T["bg"],   foreground=T["fg_accent"])
+        style.configure("TLabel",            background=T["bg"],   foreground=T["fg"])
+        style.configure("TFrame",            background=T["bg"])
+        style.configure("TButton",           background=T["bg_button"], foreground=T["fg"], borderwidth=1)
+        style.map("TButton",                 background=[("active", T["bg_button_hover"])])
+        style.configure("TEntry",            fieldbackground=T["bg_widget"], foreground=T["fg"],
+                                            insertcolor=T["fg"])
+        style.configure("TCombobox",         fieldbackground=T["bg_widget"], foreground=T["fg"],
+                                            selectbackground=T["bg_widget"])
+        style.map("TCombobox",               fieldbackground=[("readonly", T["bg_widget"])])
+
+        # Validation styles — driven by THEME, don't touch these
+        style.configure("Invalid.TEntry",    fieldbackground=T["fg_error"])
+        style.configure("Invalid.TCombobox", fieldbackground=T["fg_error"])
+        # ────────────────────────────────────────────────────────────────────
+        self.title("Fenster")
+        self.state("zoomed")
         # Core instances
         self.recognizer = None
         self.converter = TextToPathConverter()
@@ -50,7 +89,9 @@ class PlotterUI(tk.Tk):
 
         ttk.Label(conn_frame, text="Port:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.port_var = tk.StringVar()
-        self.port_cb = ttk.Combobox(conn_frame, textvariable=self.port_var, values=self.plotter.list_ports())
+        ports = self.plotter.list_ports()
+        self.port_cb = ttk.Combobox(conn_frame, textvariable=self.port_var,
+            values=ports, width=max((len(p) for p in ports), default=20))
         self.port_cb.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
         ttk.Button(conn_frame, text="Aktualisieren", command=self.refresh_ports).grid(row=0, column=2, padx=5, pady=5)
@@ -115,14 +156,16 @@ class PlotterUI(tk.Tk):
         preview_frame = ttk.LabelFrame(right_panel, text="Vorschau (Vektorpfade)")
         preview_frame.pack(fill="both", expand=True, pady=(0, 10))
 
-        self.canvas = tk.Canvas(preview_frame, bg="white")
+        self.canvas = tk.Canvas(preview_frame, bg=self.THEME["bg_canvas"], highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=5, pady=5)
 
         # 2. Text Input / Recognized Text
         text_frame = ttk.LabelFrame(right_panel, text="Erkannter Text / Eingabe")
         text_frame.pack(fill="x", pady=10)
 
-        self.text_input = tk.Text(text_frame, height=3)
+        self.text_input = tk.Text(text_frame, height=3,
+            bg=self.THEME["bg_widget"], fg=self.THEME["fg"],
+            insertbackground=self.THEME["fg"], relief="flat")
         self.text_input.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         ttk.Button(text_frame, text="Vorschau\naktualisieren", command=self.update_preview).pack(side="right", padx=5, pady=5)
 
@@ -130,7 +173,9 @@ class PlotterUI(tk.Tk):
         log_frame = ttk.LabelFrame(right_panel, text="Log / Konsole")
         log_frame.pack(fill="both", expand=True)
 
-        self.log_out = scrolledtext.ScrolledText(log_frame, height=8, state="disabled", font=("Consolas", 9))
+        self.log_out = scrolledtext.ScrolledText(log_frame, height=8, state="disabled",
+    font=("Consolas", 9), bg=self.THEME["bg_log"], fg=self.THEME["fg_accent"],
+    insertbackground=self.THEME["fg"], relief="flat")
         self.log_out.pack(fill="both", expand=True, padx=5, pady=5)
 
     def load_config_to_ui(self):
@@ -223,8 +268,10 @@ class PlotterUI(tk.Tk):
     def refresh_ports(self):
         ports = self.plotter.list_ports()
         self.port_cb["values"] = ports
-        if ports: self.port_cb.current(0)
-
+        if ports:
+            self.port_cb["width"] = max(len(p) for p in ports)
+            self.port_cb.current(0)
+            
     def toggle_connection(self):
         if self.plotter.ser and self.plotter.ser.is_open:
             self.plotter.disconnect()
@@ -295,8 +342,8 @@ class PlotterUI(tk.Tk):
                 points.append(x * 2) # Skalierung für Vorschau
                 points.append(400 - (y * 2))
 
-            self.canvas.create_line(points, fill="blue", width=1)
-
+            self.canvas.create_line(points, fill=self.THEME["fg_plot_line"], width=1)
+            
     def start_plot(self):
         if not self.validate_fields():
             return

@@ -34,9 +34,14 @@ pip install -r requirements.txt
 ```
 
 ### 3. GPU-Support einrichten (WICHTIG für NVIDIA Nutzer)
+Finn soll Eier Lecken
 Falls du eine NVIDIA GPU hast, musst du PyTorch mit CUDA-Unterstützung installieren. Ersetze `cu121` durch deine installierte CUDA-Version (z.B. `cu118`):
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu121
+```
+Bei nutzung von RTX 2070 bzw RTX 2060 
+```bash
+pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2
 ```
 
 ## 🛠 Starten der Anwendung

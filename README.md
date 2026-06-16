@@ -41,7 +41,7 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 ```
 Bei nutzung von RTX 2070 bzw RTX 2060 
 ```bash
-pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2
+pip install torch==2.2.1 torchvision==0.15.2 torchaudio==2.2.1
 ```
 
 ## 🛠 Starten der Anwendung

@@ -10,15 +10,18 @@
         "z_down": 0.0,
         "feedrate": 1500,
         "port": "",
-        "baudrate": 115200
+        "baudrate": 115200,
+        "offset_x": 0.0,
+        "offset_y": 15.0
     },
     "paths": {
         "audio_input": "data/input/audio/",
         "gcode_output": "data/output/gcode/"
     },
     "vectorization": {
-        "scale": 1.0,
+        "scale": 0.5,
         "line_spacing": 15.0,
-        "char_spacing": 5.0
+        "char_spacing": 5.0,
+        "printable_width_mm": 130.0
     }
 }

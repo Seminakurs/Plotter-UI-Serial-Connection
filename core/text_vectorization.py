@@ -87,10 +87,45 @@ class TextToPathConverter:
 
                 line_x += (char_width + self.settings.get("char_spacing", 5.0)) * scale
 
-            # Zeilenvorschub für die nächste Zeile im Text
-            current_y -= self.settings.get("line_spacing", 15.0) * scale
+            # Dynamic line advance: Hershey rowmand cap-height ≈ 21 units × scale × multiplier
+            line_multiplier = self.settings.get("line_height_multiplier", 1.5)
+            current_y -= 21 * scale * line_multiplier
 
         return all_paths
+
+    def measure_line_width(self, text_line):
+        """Returns the width in plotter units of a single unwrapped line."""
+        if not self.hf:
+            return 0.0
+        scale = self.settings.get("scale", 1.0)
+        char_spacing = self.settings.get("char_spacing", 5.0)
+        total = 0.0
+        for char in text_line:
+            strokes = list(self.hf.strokes_for_text(char))
+            char_w = max(
+                (px for stroke in strokes for (px, py) in stroke),
+                default=10
+            )
+            if char_w == 0:
+                char_w = 10
+            total += (char_w + char_spacing) * scale
+        return total
+
+    def wrap_text(self, text, max_width_mm):
+        """Wraps text to fit within max_width_mm; preserves explicit newlines."""
+        lines = []
+        for paragraph in text.split('\n'):
+            words = paragraph.split(' ')
+            current = []
+            for word in words:
+                candidate = ' '.join(current + [word])
+                if current and self.measure_line_width(candidate) > max_width_mm:
+                    lines.append(' '.join(current))
+                    current = [word]
+                else:
+                    current.append(word)
+            lines.append(' '.join(current))
+        return '\n'.join(lines)
 
 if __name__ == "__main__":
     # Test-Code

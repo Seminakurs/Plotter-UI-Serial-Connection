@@ -152,7 +152,7 @@ class PlotterUI(tk.Tk):
         ttk.Label(voice, text="Modell:").grid(row=0, column=0, padx=6, pady=5, sticky="w")
         self.model_var = tk.StringVar(value="medium")
         self.model_cb = ttk.Combobox(voice, textvariable=self.model_var,
-            values=["small", "medium", "large"], state="readonly")
+            values=["small", "medium", "large", "turbo"], state="readonly")
         self.model_cb.grid(row=0, column=1, padx=6, pady=5, sticky="ew")
 
         ttk.Label(voice, text="Gerät:").grid(row=1, column=0, padx=6, pady=5, sticky="w")

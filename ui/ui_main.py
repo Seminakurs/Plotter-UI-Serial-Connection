@@ -183,6 +183,9 @@ class PlotterUI(tk.Tk):
         self.plot_btn = ttk.Button(actions, text="▶  PLOTTEN STARTEN",
                                    command=self.start_plot, style="Accent.TButton")
         self.plot_btn.pack(fill="x", padx=8, pady=4)
+        self.pause_btn = ttk.Button(actions, text="⏸  Pause",
+                                    command=self.toggle_pause)
+        self.pause_btn.pack(fill="x", padx=8, pady=4)
         ttk.Button(actions, text="■  STOP / NOT-AUS",
                    command=self.stop_plot, style="Stop.TButton").pack(
             fill="x", padx=8, pady=(4, 10))
@@ -292,11 +295,134 @@ class PlotterUI(tk.Tk):
         self.air_speed_entry = ttk.Entry(plotter_frame, textvariable=self.air_speed_var, width=8)
         self.air_speed_entry.grid(row=3, column=1, padx=6, pady=6, sticky="w")
 
+        ttk.Label(plotter_frame, text="Z-Speed (Hub):").grid(
+            row=4, column=0, padx=6, pady=6, sticky="w")
+        self.z_speed_var = tk.StringVar(value="1500")
+        self.z_speed_entry = ttk.Entry(plotter_frame, textvariable=self.z_speed_var, width=8)
+        self.z_speed_entry.grid(row=4, column=1, padx=6, pady=6, sticky="w")
+
         ttk.Button(plotter_frame, text="Speichern", command=self.save_settings).grid(
-            row=4, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
+            row=5, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
+
+        # Mikrofon-Einstellungen
+        mic_frame = ttk.LabelFrame(right, text="Mikrofon")
+        mic_frame.pack(fill="x", pady=8)
+        mic_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(mic_frame, text="Gerät:").grid(row=0, column=0, padx=6, pady=6, sticky="w")
+        self._mic_list = []  # list of (index, name)
+        self.mic_var = tk.StringVar()
+        self.mic_cb = ttk.Combobox(mic_frame, textvariable=self.mic_var,
+                                   state="readonly", width=30)
+        self.mic_cb.grid(row=0, column=1, padx=6, pady=6, sticky="ew")
+        ttk.Button(mic_frame, text="↻", width=3,
+                   command=self._refresh_microphones).grid(row=0, column=2, padx=(0, 6), pady=6)
+        self.mic_cb.bind("<<ComboboxSelected>>", lambda _e: self._on_mic_changed())
+
+        ttk.Label(mic_frame, text="Pegel:").grid(row=1, column=0, padx=6, pady=6, sticky="w")
+        self.volume_bar = ttk.Progressbar(mic_frame, mode="determinate",
+                                          maximum=100, value=0)
+        self.volume_bar.grid(row=1, column=1, columnspan=2, padx=6, pady=6, sticky="ew")
+
+        # Transkriptions-Intervall (max Buffer-Sekunden)
+        ttk.Label(mic_frame, text="Intervall:").grid(row=2, column=0, padx=6, pady=6, sticky="w")
+        interval_row = ttk.Frame(mic_frame)
+        interval_row.grid(row=2, column=1, columnspan=2, padx=6, pady=6, sticky="ew")
+        interval_row.columnconfigure(0, weight=1)
+
+        self.interval_var = tk.IntVar(value=30)
+        self.interval_scale = ttk.Scale(
+            interval_row, from_=2, to=30, orient="horizontal",
+            command=self._on_interval_scale_change
+        )
+        self.interval_scale.grid(row=0, column=0, sticky="ew")
+        self.interval_label = ttk.Label(interval_row, text="30 s", width=6)
+        self.interval_label.grid(row=0, column=1, padx=(6, 0))
+
+        ttk.Button(mic_frame, text="Mikrofon-Einstellungen anwenden",
+                   command=self._apply_mic_settings).grid(
+            row=3, column=0, columnspan=3, padx=6, pady=(2, 8), sticky="ew")
+
+        self._refresh_microphones()
 
         ttk.Button(right, text="Vorschau aktualisieren",
                    command=self._update_alignment_canvas).pack(fill="x", pady=(8, 0))
+
+    def _refresh_microphones(self):
+        try:
+            self._mic_list = SpeechRecognizer.list_microphones()
+        except Exception as e:
+            self.log(f"Konnte Mikrofone nicht auflisten: {e}")
+            self._mic_list = []
+
+        labels = ["Standard"] + [f"[{idx}] {name}" for idx, name in self._mic_list]
+        self.mic_cb["values"] = labels
+
+        # Aktuell konfigurierten Index aus Config lesen und auswählen
+        current = None
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                current = json.load(f).get("stt_settings", {}).get("mic_device", None)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
+        sel = 0  # default
+        if current is not None:
+            for i, (idx, _name) in enumerate(self._mic_list):
+                if idx == current:
+                    sel = i + 1
+                    break
+        if labels:
+            self.mic_cb.current(sel)
+
+    def _on_mic_changed(self):
+        # Nur visuell — wird erst durch "Anwenden" persistiert/übernommen
+        pass
+
+    def _selected_mic_index(self):
+        idx = self.mic_cb.current()
+        if idx <= 0:
+            return None
+        try:
+            return self._mic_list[idx - 1][0]
+        except IndexError:
+            return None
+
+    def _on_interval_scale_change(self, value):
+        try:
+            v = int(float(value))
+        except (TypeError, ValueError):
+            return
+        self.interval_var.set(v)
+        self.interval_label.config(text=f"{v} s")
+
+    def _apply_mic_settings(self):
+        mic_idx = self._selected_mic_index()
+        interval = int(self.interval_var.get())
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                cfg = json.load(f)
+            cfg.setdefault("stt_settings", {})["mic_device"] = mic_idx
+            cfg["stt_settings"]["max_buffer_seconds"] = interval
+            tmp = CONFIG_PATH + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(cfg, f, indent=4)
+            os.replace(tmp, CONFIG_PATH)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Konnte Mikrofon-Einstellungen nicht speichern: {e}")
+            return
+
+        if self.recognizer:
+            try:
+                self.recognizer.reload_config()
+            except Exception as e:
+                self.log(f"Reload des Recognizers fehlgeschlagen: {e}")
+        self.log(f"Mikrofon-Einstellungen gespeichert (Gerät={mic_idx}, Intervall={interval}s).")
+
+    def _on_mic_volume(self, rms):
+        # Skaliert RMS (~0..0.3 bei normaler Sprache) auf 0..100 für die Progressbar
+        level = min(100.0, rms * 400.0)
+        self.after(0, lambda lv=level: self.volume_bar.configure(value=lv))
 
     def _update_alignment_canvas(self):
         self.align_canvas.delete("all")
@@ -327,7 +453,8 @@ class PlotterUI(tk.Tk):
                              "min_speech_duration": 0.5, "max_buffer_seconds": 30,
                              "undo_keyword": "Dino"},
             "plotter": {"z_up": 5.0, "z_down": 0.0, "writing_speed": 1000, "air_speed": 3000,
-                        "port": "", "baudrate": 115200, "offset_x": 0.0, "offset_y": 0.0},
+                        "z_speed": 1500, "port": "", "baudrate": 115200,
+                        "offset_x": 0.0, "offset_y": 0.0},
             "paths": {"audio_input": "data/input/audio/", "gcode_output": "data/output/gcode/"},
             "vectorization": {"scale": 1.0, "line_spacing": 15.0, "char_spacing": 5.0,
                               "printable_width_mm": 130.0},
@@ -352,9 +479,20 @@ class PlotterUI(tk.Tk):
         self.z_down_var.set(p.get("z_down", 0.0))
         self.writing_speed_var.set(p.get("writing_speed", 1000))
         self.air_speed_var.set(p.get("air_speed", 3000))
+        self.z_speed_var.set(p.get("z_speed", 1500))
         self.font_size_var.set(v.get("scale", 1.0))
         self.offset_x_var.set(p.get("offset_x", 0.0))
         self.offset_y_var.set(p.get("offset_y", 0.0))
+
+        stt = cfg.get("stt_settings", {})
+        try:
+            interval = int(stt.get("max_buffer_seconds", 30))
+        except (TypeError, ValueError):
+            interval = 30
+        interval = max(2, min(30, interval))
+        self.interval_var.set(interval)
+        self.interval_scale.set(interval)
+        self.interval_label.config(text=f"{interval} s")
 
     def validate_fields(self):
         valid = True
@@ -363,6 +501,7 @@ class PlotterUI(tk.Tk):
             (self.z_down_var, self.z_down_entry, "Stift RUNTER"),
             (self.writing_speed_var, self.writing_speed_entry, "Schreib-Speed"),
             (self.air_speed_var, self.air_speed_entry, "Luft-Speed"),
+            (self.z_speed_var, self.z_speed_entry, "Z-Speed"),
             (self.port_var, self.port_cb, "Port")
         ]
 
@@ -399,6 +538,7 @@ class PlotterUI(tk.Tk):
             cfg["plotter"]["z_down"] = float(self.z_down_var.get())
             cfg["plotter"]["writing_speed"] = int(self.writing_speed_var.get())
             cfg["plotter"]["air_speed"] = int(self.air_speed_var.get())
+            cfg["plotter"]["z_speed"] = int(self.z_speed_var.get())
             cfg["plotter"]["offset_x"] = float(self.offset_x_var.get() or 0)
             cfg["plotter"]["offset_y"] = float(self.offset_y_var.get() or 0)
             cfg["whisper"]["model_size"] = self.model_var.get()
@@ -486,7 +626,8 @@ class PlotterUI(tk.Tk):
                         self.recognizer = SpeechRecognizer(
                             config_path=CONFIG_PATH,
                             callback=self._on_speech_recognized,
-                            status_callback=self._on_status_update
+                            status_callback=self._on_status_update,
+                            volume_callback=self._on_mic_volume
                         )
                     self.recognizer.start()
                     self.after(0, lambda: self._voice_started())
@@ -501,24 +642,19 @@ class PlotterUI(tk.Tk):
         except (ValueError, tk.TclError):
             messagebox.showwarning("Ungültig", "Threads muss eine ganze Zahl sein.")
             return
+        if threads_val < 1:
+            messagebox.showwarning("Ungültig", "Threads muss mindestens 1 sein.")
+            return
 
         model = self.model_var.get()
         device = self.device_var.get()
 
         try:
-            with open(CONFIG_PATH, "r") as f:
-                cfg = json.load(f)
-            cfg.setdefault("whisper", {})
-            cfg["whisper"]["model_size"] = model
-            cfg["whisper"]["device"] = device
-            cfg["whisper"]["threads"] = threads_val
-            with open(CONFIG_PATH, "w") as f:
-                json.dump(cfg, f, indent=4)
+            self._write_whisper_config(model, device, threads_val)
         except Exception as e:
             messagebox.showerror("Fehler", f"Konnte Config nicht schreiben: {e}")
             return
 
-        was_running = bool(self.recognizer and self.recognizer.running)
         self.update_model_btn.config(state="disabled", text="Lade Modell...")
         self.voice_btn.config(state="disabled")
         self.log(f"Aktualisiere Whisper auf Modell='{model}', Device='{device}'...")
@@ -530,33 +666,62 @@ class PlotterUI(tk.Tk):
                         config_path=CONFIG_PATH,
                         callback=self._on_speech_recognized,
                         status_callback=self._on_status_update,
+                        volume_callback=self._on_mic_volume,
                     )
                 else:
-                    if was_running:
-                        self.recognizer.stop()
                     self.recognizer.reload_config()
-                    if was_running:
-                        self.recognizer.start()
-                self.after(0, lambda: self._model_update_done(was_running))
+                self.after(0, self._model_update_done)
             except Exception as e:
-                self.after(0, lambda err=e: self._model_update_failed(err, was_running))
+                self.after(0, lambda err=e: self._model_update_failed(err))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _model_update_done(self, was_running):
+    def _write_whisper_config(self, model, device, threads_val):
+        """Atomic config write: temp file + replace, damit ein Crash mitten
+        im Schreiben die Datei nicht korrumpiert."""
+        with open(CONFIG_PATH, "r") as f:
+            cfg = json.load(f)
+        cfg.setdefault("whisper", {})
+        cfg["whisper"]["model_size"] = model
+        cfg["whisper"]["device"] = device
+        cfg["whisper"]["threads"] = threads_val
+        tmp_path = CONFIG_PATH + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(cfg, f, indent=4)
+        os.replace(tmp_path, CONFIG_PATH)
+
+    def _sync_device_from_recognizer(self):
+        """Wenn load_model() von CUDA auf CPU gefallen ist, das UI-Dropdown
+        und die Config entsprechend nachziehen — sonst probiert der nächste
+        Klick wieder CUDA und schlägt erneut fehl."""
+        if not self.recognizer:
+            return
+        effective = self.recognizer.device
+        if effective != self.device_var.get() and self.device_var.get() != "auto":
+            self.device_var.set(effective)
+            try:
+                self._write_whisper_config(
+                    self.model_var.get(), effective, int(self.threads_var.get())
+                )
+            except (ValueError, tk.TclError, OSError):
+                pass
+            self.log(f"Gerät auf '{effective}' angepasst (Fallback vom GPU).")
+
+    def _running_button_text(self):
+        return "Spracherkennung STOP" if (
+            self.recognizer and self.recognizer.running
+        ) else "Spracherkennung starten"
+
+    def _model_update_done(self):
+        self._sync_device_from_recognizer()
         self.update_model_btn.config(state="normal", text="Modell aktualisieren")
-        self.voice_btn.config(
-            state="normal",
-            text="Spracherkennung STOP" if was_running else "Spracherkennung starten",
-        )
+        self.voice_btn.config(state="normal", text=self._running_button_text())
         self.log("Modell-Aktualisierung abgeschlossen.")
 
-    def _model_update_failed(self, error, was_running):
+    def _model_update_failed(self, error):
+        self._sync_device_from_recognizer()
         self.update_model_btn.config(state="normal", text="Modell aktualisieren")
-        self.voice_btn.config(
-            state="normal",
-            text="Spracherkennung STOP" if was_running else "Spracherkennung starten",
-        )
+        self.voice_btn.config(state="normal", text=self._running_button_text())
         self.log(f"Fehler bei Modell-Aktualisierung: {error}")
         messagebox.showerror("Fehler", f"Modell konnte nicht geladen werden: {error}")
 
@@ -638,6 +803,18 @@ class PlotterUI(tk.Tk):
         self.plotter.stop_plotting()
         if self.plotter.ser and self.plotter.ser.is_open:
             self.plotter.ser.write(b"M112\n")
+        self.pause_btn.config(text="⏸  Pause")
+
+    def toggle_pause(self):
+        if not self.plotter.running:
+            self.log("Kein laufender Plot — Pause/Fortsetzen nicht möglich.")
+            return
+        if self.plotter.paused:
+            self.plotter.resume_plotting()
+            self.pause_btn.config(text="⏸  Pause")
+        else:
+            self.plotter.pause_plotting()
+            self.pause_btn.config(text="▶  Fortsetzen")
 
     def home_plotter(self):
         if self.plotter.ser and self.plotter.ser.is_open:

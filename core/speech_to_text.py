@@ -21,6 +21,7 @@ _DEFAULT_STT = {
     "min_speech_duration": 0.5,
     "max_buffer_seconds": 30,
     "undo_keyword": "Dino",
+    "mic_device": None,  # None = system default; otherwise sounddevice device index (int)
 }
 
 
@@ -30,14 +31,17 @@ class SpeechRecognizer:
     Callback liefert {"text": str, "confidence": float}.
     """
 
-    def __init__(self, config_path="data/config.json", callback=None, status_callback=None):
+    def __init__(self, config_path="data/config.json", callback=None,
+                 status_callback=None, volume_callback=None):
         """
         callback:        wird mit {"text": str, "confidence": float} aufgerufen.
         status_callback: wird mit Status-Strings (Hardware-Info, Fehler) aufgerufen.
+        volume_callback: wird im Audio-Callback mit dem aktuellen RMS-Pegel (0..1) aufgerufen.
         """
         self.config_path = config_path
         self.callback = callback
         self.status_callback = status_callback
+        self.volume_callback = volume_callback
         self.running = False
         self.logger = SessionLogger()
 
@@ -86,6 +90,11 @@ class SpeechRecognizer:
         self.min_speech_duration = stt_cfg.get("min_speech_duration", _DEFAULT_STT["min_speech_duration"])
         self.max_buffer_seconds = stt_cfg.get("max_buffer_seconds", _DEFAULT_STT["max_buffer_seconds"])
         self.undo_keyword = stt_cfg.get("undo_keyword", _DEFAULT_STT["undo_keyword"]).strip().lower()
+        mic_dev = stt_cfg.get("mic_device", _DEFAULT_STT["mic_device"])
+        try:
+            self.mic_device = int(mic_dev) if mic_dev is not None and mic_dev != "" else None
+        except (TypeError, ValueError):
+            self.mic_device = None
         # ────────────────────────────────────────────────────────────────────
 
         if self.device == "auto":
@@ -183,6 +192,24 @@ class SpeechRecognizer:
         if status:
             self._report_status(f"Audio-Status-Fehler: {status}")
         self.audio_queue.put(indata.copy())
+        if self.volume_callback:
+            try:
+                rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2)))
+                self.volume_callback(rms)
+            except Exception:
+                pass
+
+    @staticmethod
+    def list_microphones():
+        """Gibt Liste der Eingabegeräte zurück als [(index, name), ...]."""
+        mics = []
+        try:
+            for idx, dev in enumerate(sd.query_devices()):
+                if dev.get("max_input_channels", 0) > 0:
+                    mics.append((idx, dev.get("name", f"Device {idx}")))
+        except Exception:
+            pass
+        return mics
 
     # ── Transkriptions-Loop ───────────────────────────────────────────────
 
@@ -297,6 +324,7 @@ class SpeechRecognizer:
             self.stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=1,
+                device=self.mic_device,
                 callback=self._audio_callback
             )
             self.stream.start()
@@ -319,17 +347,42 @@ class SpeechRecognizer:
     # ── Live-Reload ───────────────────────────────────────────────────────
 
     def reload_config(self):
-        """Lädt Config neu und lädt bei Modell-/Device-Änderung das Modell neu."""
+        """Lädt Config neu und lädt bei Modell-/Device-Änderung das Modell neu.
+        Pausiert die Audio-Aufnahme während des Reloads, falls sie läuft,
+        damit der Transkriptions-Loop nicht auf ein gerade freigegebenes
+        Modell zugreift.
+        """
         old_model = self.model_size
         old_device = self.device
+        old_threads = self.threads
+        old_mic = self.mic_device
         self.load_config()
 
-        if self.model_size != old_model or self.device != old_device:
+        model_or_device_changed = (
+            self.model_size != old_model or self.device != old_device
+        )
+        threads_changed = self.threads != old_threads
+        mic_changed = self.mic_device != old_mic
+
+        was_running = self.running
+        needs_restart = model_or_device_changed or threads_changed or mic_changed
+        if was_running and needs_restart:
+            self.stop()
+
+        if model_or_device_changed:
             self._report_status("Modell- oder Device-Änderung erkannt — lade Modell neu...")
             self.load_model()
             self._apply_thread_settings()
+        elif threads_changed:
+            self._report_status(f"Thread-Anzahl geändert: {old_threads} -> {self.threads}.")
+            self._apply_thread_settings()
+        elif mic_changed:
+            self._report_status(f"Mikrofon geändert: {old_mic} -> {self.mic_device}.")
         else:
             self._report_status("STT-Einstellungen neu geladen (Modell unverändert).")
+
+        if was_running and needs_restart:
+            self.start()
 
 
 if __name__ == "__main__":

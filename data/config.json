@@ -1,23 +1,24 @@
 {
     "whisper": {
-        "model_size": "medium",
+        "model_size": "turbo",
         "device": "cuda",
-        "threads": 12,
+        "threads": 6,
         "language": "de"
     },
     "stt_settings": {
         "silence_threshold": 0.01,
         "silence_duration": 0.8,
         "min_speech_duration": 0.5,
-        "max_buffer_seconds": 30,
-        "undo_keyword": "Dino"
+        "max_buffer_seconds": 3,
+        "undo_keyword": "Dino",
+        "mic_device": null
     },
     "plotter": {
-        "z_up": 3.0,
+        "z_up": 9.0,
         "z_down": 0.0,
-        "writing_speed": 1000,
-        "air_speed": 3000,
-        "port": "",
+        "writing_speed": 5000,
+        "air_speed": 9000,
+        "port": "COM3 \u2014 USB Serial Port (COM3)",
         "baudrate": 115200,
         "offset_x": 0.0,
         "offset_y": 15.0
@@ -27,7 +28,7 @@
         "gcode_output": "data/output/gcode/"
     },
     "vectorization": {
-        "scale": 0.5,
+        "scale": 0.4,
         "line_spacing": 15.0,
         "char_spacing": 5.0,
         "printable_width_mm": 130.0

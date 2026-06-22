@@ -16,6 +16,9 @@ class SerialPlotter:
         self.log_callback = log_callback
         self.ser = None
         self.running = False
+        self.paused = False
+        self._pause_event = threading.Event()
+        self._pause_event.set()  # set = not paused (worker may run)
         self.gcode_queue = queue.Queue()
         self.worker_thread = None
 
@@ -130,10 +133,41 @@ class SerialPlotter:
     def stop_plotting(self):
         """Stoppt den aktuellen Plot-Vorgang."""
         self.running = False
+        self.paused = False
+        self._pause_event.set()  # unblock worker so it can exit
         # Do NOT join — we need to return immediately so the
         # emergency M112 in ui_main can be sent right away
         self.worker_thread = None
         self._log("Plotting gestoppt.")
+
+    def pause_plotting(self):
+        """Pausiert den Plot-Vorgang ohne ihn abzubrechen.
+        Sendet GRBL Feed-Hold (!) und blockiert den Worker."""
+        if not self.running or self.paused:
+            return False
+        self.paused = True
+        self._pause_event.clear()
+        if self.ser and self.ser.is_open:
+            try:
+                self.ser.write(b"!")  # GRBL feed hold (real-time, no newline)
+            except Exception as e:
+                self._log(f"Fehler beim Senden von Feed-Hold: {e}")
+        self._log("Plot pausiert (Feed-Hold).")
+        return True
+
+    def resume_plotting(self):
+        """Setzt einen pausierten Plot fort. Sendet GRBL Cycle-Start (~)."""
+        if not self.running or not self.paused:
+            return False
+        if self.ser and self.ser.is_open:
+            try:
+                self.ser.write(b"~")  # GRBL cycle start / resume
+            except Exception as e:
+                self._log(f"Fehler beim Senden von Resume: {e}")
+        self.paused = False
+        self._pause_event.set()
+        self._log("Plot fortgesetzt.")
+        return True
 
     def _plot_worker(self, gcode_lines):
         """Worker-Thread, der die G-Code Zeilen nacheinander abarbeitet."""
@@ -141,11 +175,16 @@ class SerialPlotter:
         for line in gcode_lines:
             if not self.running:
                 break
+            # Blockiert wenn pausiert; läuft sofort weiter wenn _pause_event gesetzt ist
+            self._pause_event.wait()
+            if not self.running:
+                break
             if not self.send_line(line):
                 self._log("Abbruch wegen Fehler.")
                 break
 
         self.running = False
+        self.paused = False
         self._log("Plot-Vorgang beendet.")
 
 if __name__ == "__main__":

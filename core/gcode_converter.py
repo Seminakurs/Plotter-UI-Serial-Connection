@@ -21,6 +21,7 @@ class GCodeGenerator:
                 self.z_down = plotter_cfg.get("z_down", 0.0)
                 self.writing_speed = plotter_cfg.get("writing_speed", 1000)
                 self.air_speed = plotter_cfg.get("air_speed", 3000)
+                self.z_speed = plotter_cfg.get("z_speed", 1500)
                 self.start_gcode = plotter_cfg.get("start_gcode", ["G21", "G90", "G28"])
                 self.end_gcode = plotter_cfg.get("end_gcode", ["G1 Z5.0", "G28 X0 Y0", "M84"])
         except Exception:
@@ -28,6 +29,7 @@ class GCodeGenerator:
             self.z_down = 0.0
             self.writing_speed = 1000
             self.air_speed = 3000
+            self.z_speed = 1500
             self.start_gcode = ["G21", "G90", "G28"]
             self.end_gcode = ["G1 Z5.0", "G28 X0 Y0", "M84"]
 
@@ -42,8 +44,8 @@ class GCodeGenerator:
         for line in self.start_gcode:
             gcode.append(line)
 
-        # Sicherstellen, dass der Stift oben ist (Travel-Move -> air_speed)
-        gcode.append(f"G1 Z{self.z_up} F{self.air_speed}")
+        # Sicherstellen, dass der Stift oben ist (Z-Move -> z_speed)
+        gcode.append(f"G1 Z{self.z_up} F{self.z_speed}")
 
         for path in all_paths:
             if not path:
@@ -53,16 +55,16 @@ class GCodeGenerator:
             start_x, start_y = path[0]
             gcode.append(f"G1 X{start_x:.3f} Y{start_y:.3f} F{self.air_speed}")
 
-            # 2. Stift runter (danach gilt writing_speed fürs Zeichnen)
-            gcode.append(f"G1 Z{self.z_down} F{self.writing_speed}")
+            # 2. Stift runter (Z-Move -> z_speed)
+            gcode.append(f"G1 Z{self.z_down} F{self.z_speed}")
 
             # 3. Den Pfad abfahren (Zeichnen -> writing_speed)
             for point in path[1:]:
                 x, y = point
                 gcode.append(f"G1 X{x:.3f} Y{y:.3f} F{self.writing_speed}")
 
-            # 4. Stift wieder hoch nach Ende des Pfades (Travel-Move -> air_speed)
-            gcode.append(f"G1 Z{self.z_up} F{self.air_speed}")
+            # 4. Stift wieder hoch nach Ende des Pfades (Z-Move -> z_speed)
+            gcode.append(f"G1 Z{self.z_up} F{self.z_speed}")
 
         # Ende-Sequenz
         for line in self.end_gcode:

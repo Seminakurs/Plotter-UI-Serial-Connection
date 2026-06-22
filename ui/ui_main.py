@@ -1,8 +1,14 @@
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import json
 import threading
 import time
+
+# Absolute path to config — works regardless of working directory
+_UI_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_DIR = os.path.dirname(_UI_DIR)
+CONFIG_PATH = os.path.join(_PROJECT_DIR, "data", "config.json")
 
 # Import core modules
 from core.speech_to_text import SpeechRecognizer
@@ -12,14 +18,12 @@ from core.serial_comm import SerialPlotter
 
 class PlotterUI(tk.Tk):
     def __init__(self):
-        print("MeineKlasse wurde erstellt")
         super().__init__()
         # ── THEME ── change colors here, nowhere else ──────────────────────
         self.THEME = {
             "bg":           "#1e1e1e",   # window / panel background
             "bg_widget":    "#2d2d2d",   # entry / combobox / text fields
             "bg_log":       "#141414",   # log console background
-            "bg_canvas":    "#2d2d2d",   # preview canvas
             "bg_button":    "#3a3a3a",   # button face
             "bg_button_hover": "#505050",
             "fg":           "#d4d4d4",   # normal text
@@ -57,9 +61,9 @@ class PlotterUI(tk.Tk):
         self.state("zoomed")
         # Core instances
         self.recognizer = None
-        self.converter = TextToPathConverter()
-        self.generator = GCodeGenerator()
-        self.plotter = SerialPlotter(log_callback=self.log)
+        self.converter = TextToPathConverter(config_path=CONFIG_PATH)
+        self.generator = GCodeGenerator(config_path=CONFIG_PATH)
+        self.plotter = SerialPlotter(config_path=CONFIG_PATH, log_callback=self.log)
 
         # State
         self.current_paths = []
@@ -67,14 +71,20 @@ class PlotterUI(tk.Tk):
         self.create_widgets()
         self.load_config_to_ui()
 
-        # Periodic update for serial logs/responses
-        self.after(100, self._periodic_check)
 
     def create_widgets(self):
-        # Main layout: Left (Controls), Right (Preview)
-        main_frame = ttk.Frame(self)
-        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
+        # Tab 1 — existing controls
+        main_frame = ttk.Frame(notebook)
+        notebook.add(main_frame, text="Steuerung")
+
+        # Tab 2 — preview & alignment
+        align_frame = ttk.Frame(notebook)
+        notebook.add(align_frame, text="Vorschau & Ausrichtung")
+
+        # Main layout: Left (Controls), Right (Preview)
         left_panel = ttk.Frame(main_frame, width=350)
         left_panel.pack(side="left", fill="y", padx=(0, 10))
 
@@ -105,7 +115,10 @@ class PlotterUI(tk.Tk):
 
         ttk.Label(whisper_frame, text="Modell:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.model_var = tk.StringVar(value="medium")
-        ttk.Entry(whisper_frame, textvariable=self.model_var).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        _whisper_models = ["small", "medium", "large"]
+        self.model_cb = ttk.Combobox(whisper_frame, textvariable=self.model_var,
+                                     values=_whisper_models, state="readonly")
+        self.model_cb.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
         ttk.Label(whisper_frame, text="Threads:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.threads_var = tk.IntVar(value=12)
@@ -139,7 +152,14 @@ class PlotterUI(tk.Tk):
         self.feed_entry = ttk.Entry(settings_frame, textvariable=self.feed_var, width=8)
         self.feed_entry.grid(row=2, column=1, padx=5, pady=2)
 
-        ttk.Button(settings_frame, text="Speichern", command=self.save_settings).grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        ttk.Label(settings_frame, text="Schriftgröße:").grid(row=3, column=0, padx=5, pady=2, sticky="w")
+        self.font_size_var = tk.StringVar(value="1.0")
+        self.font_size_entry = ttk.Entry(settings_frame, textvariable=self.font_size_var, width=8)
+        self.font_size_entry.grid(row=3, column=1, padx=5, pady=2)
+        self.font_size_var.trace_add("write", self._on_font_size_changed)
+
+        ttk.Button(settings_frame, text="Schriftgröße anwenden", command=self._apply_font_size).grid(row=4, column=0, columnspan=2, padx=5, pady=2, sticky="ew")
+        ttk.Button(settings_frame, text="Speichern", command=self.save_settings).grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         # 4. Action Frame
         action_frame = ttk.LabelFrame(left_panel, text="Aktionen")
@@ -152,14 +172,7 @@ class PlotterUI(tk.Tk):
 
         # --- RIGHT PANEL: Preview & Console ---
 
-        # 1. Preview (Canvas)
-        preview_frame = ttk.LabelFrame(right_panel, text="Vorschau (Vektorpfade)")
-        preview_frame.pack(fill="both", expand=True, pady=(0, 10))
-
-        self.canvas = tk.Canvas(preview_frame, bg=self.THEME["bg_canvas"], highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True, padx=5, pady=5)
-
-        # 2. Text Input / Recognized Text
+        # 1. Text Input / Recognized Text
         text_frame = ttk.LabelFrame(right_panel, text="Erkannter Text / Eingabe")
         text_frame.pack(fill="x", pady=10)
 
@@ -178,19 +191,99 @@ class PlotterUI(tk.Tk):
     insertbackground=self.THEME["fg"], relief="flat")
         self.log_out.pack(fill="both", expand=True, padx=5, pady=5)
 
-    def load_config_to_ui(self):
+        self._build_alignment_tab(align_frame)
+
+    def _build_alignment_tab(self, parent):
+        T = self.THEME
+        parent.columnconfigure(0, weight=3)
+        parent.columnconfigure(1, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        A5_PX_W, A5_PX_H = 350, int(350 * 1.4142)
+
+        canvas_frame = ttk.LabelFrame(parent, text="A5-Vorschau")
+        canvas_frame.grid(row=0, column=0, sticky="nsew", padx=(5, 10), pady=5)
+
+        self.align_canvas = tk.Canvas(
+            canvas_frame, width=A5_PX_W, height=A5_PX_H,
+            bg="white", highlightthickness=1,
+            highlightbackground=T["border"]
+        )
+        self.align_canvas.pack(padx=5, pady=5)
+
+        ctrl_frame = ttk.Frame(parent)
+        ctrl_frame.grid(row=0, column=1, sticky="n", padx=(0, 5), pady=5)
+
+        off_frame = ttk.LabelFrame(ctrl_frame, text="Start-Offset (mm)")
+        off_frame.pack(fill="x", pady=(0, 10))
+
+        ttk.Label(off_frame, text="X:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.offset_x_var = tk.StringVar(value="0.0")
+        ttk.Entry(off_frame, textvariable=self.offset_x_var, width=8).grid(row=0, column=1, padx=5)
+
+        ttk.Label(off_frame, text="Y:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.offset_y_var = tk.StringVar(value="0.0")
+        ttk.Entry(off_frame, textvariable=self.offset_y_var, width=8).grid(row=1, column=1, padx=5)
+
+        self.offset_x_var.trace_add("write", lambda *_: (self._update_alignment_canvas(), self._save_ui_config()))
+        self.offset_y_var.trace_add("write", lambda *_: (self._update_alignment_canvas(), self._save_ui_config()))
+
+        ttk.Button(ctrl_frame, text="Vorschau aktualisieren",
+                   command=self._update_alignment_canvas).pack(fill="x", pady=5)
+
+    def _update_alignment_canvas(self):
+        self.align_canvas.delete("all")
+        if not self.current_paths:
+            return
         try:
-            with open("data/config.json", "r") as f:
+            ox = float(self.offset_x_var.get())
+            oy = float(self.offset_y_var.get())
+        except ValueError:
+            return
+
+        A5_PX_H = int(350 * 1.4142)
+        SCALE = 2.0
+
+        for path in self.current_paths:
+            if len(path) < 2:
+                continue
+            pts = []
+            for (x, y) in path:
+                pts.append((x + ox) * SCALE)
+                pts.append(A5_PX_H - (y + oy) * SCALE)
+            self.align_canvas.create_line(pts, fill=self.THEME["fg_plot_line"], width=1)
+
+    def load_config_to_ui(self):
+        _default = {
+            "whisper": {"model_size": "medium", "device": "auto", "threads": 12, "language": "de"},
+            "plotter": {"z_up": 5.0, "z_down": 0.0, "feedrate": 1500, "port": "",
+                        "baudrate": 115200, "offset_x": 0.0, "offset_y": 0.0},
+            "paths": {"audio_input": "data/input/audio/", "gcode_output": "data/output/gcode/"},
+            "vectorization": {"scale": 1.0, "line_spacing": 15.0, "char_spacing": 5.0,
+                              "printable_width_mm": 130.0},
+        }
+        try:
+            with open(CONFIG_PATH, "r") as f:
                 cfg = json.load(f)
-                self.port_var.set(cfg.get("plotter", {}).get("port", ""))
-                self.model_var.set(cfg.get("whisper", {}).get("model_size", "medium"))
-                self.threads_var.set(cfg.get("whisper", {}).get("threads", 12))
-                self.device_var.set(cfg.get("whisper", {}).get("device", "auto"))
-                self.z_up_var.set(cfg.get("plotter", {}).get("z_up", 5.0))
-                self.z_down_var.set(cfg.get("plotter", {}).get("z_down", 0.0))
-                self.feed_var.set(cfg.get("plotter", {}).get("feedrate", 1500))
-        except:
-            pass
+        except (FileNotFoundError, json.JSONDecodeError):
+            cfg = _default
+            os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(cfg, f, indent=4)
+
+        p = cfg.get("plotter", {})
+        w = cfg.get("whisper", {})
+        v = cfg.get("vectorization", {})
+        self.port_var.set(p.get("port", ""))
+        self.model_var.set(w.get("model_size", "medium"))
+        self.threads_var.set(w.get("threads", 12))
+        self.device_var.set(w.get("device", "auto"))
+        self.z_up_var.set(p.get("z_up", 5.0))
+        self.z_down_var.set(p.get("z_down", 0.0))
+        self.feed_var.set(p.get("feedrate", 1500))
+        self.font_size_var.set(v.get("scale", 1.0))
+        self.offset_x_var.set(p.get("offset_x", 0.0))
+        self.offset_y_var.set(p.get("offset_y", 0.0))
 
     def validate_fields(self):
         """Validiert die Eingabefelder und gibt visuelles Feedback."""
@@ -202,11 +295,6 @@ class PlotterUI(tk.Tk):
             (self.feed_var, self.feed_entry, "Feedrate"),
             (self.port_var, self.port_cb, "Port")
         ]
-
-        # Style zurücksetzen
-        style = ttk.Style()
-        style.configure("Invalid.TEntry", fieldbackground="red")
-        style.configure("Invalid.TCombobox", fieldbackground="red")
 
         for var, widget, name in fields:
             val = var.get().strip()
@@ -238,26 +326,61 @@ class PlotterUI(tk.Tk):
             return
 
         try:
-            with open("data/config.json", "r") as f:
+            with open(CONFIG_PATH, "r") as f:
                 cfg = json.load(f)
 
             cfg["plotter"]["port"] = self.port_var.get()
             cfg["plotter"]["z_up"] = float(self.z_up_var.get())
             cfg["plotter"]["z_down"] = float(self.z_down_var.get())
             cfg["plotter"]["feedrate"] = int(self.feed_var.get())
+            cfg["plotter"]["offset_x"] = float(self.offset_x_var.get() or 0)
+            cfg["plotter"]["offset_y"] = float(self.offset_y_var.get() or 0)
             cfg["whisper"]["model_size"] = self.model_var.get()
             cfg["whisper"]["threads"] = self.threads_var.get()
             cfg["whisper"]["device"] = self.device_var.get()
+            cfg.setdefault("vectorization", {})["scale"] = float(self.font_size_var.get() or 1.0)
 
-            with open("data/config.json", "w") as f:
+            with open(CONFIG_PATH, "w") as f:
                 json.dump(cfg, f, indent=4)
 
             # Update instances
             self.plotter.load_config()
             self.generator.load_config()
+            self.converter.load_config()
             self.log("Einstellungen gespeichert.")
         except Exception as e:
             messagebox.showerror("Fehler", f"Konnte Einstellungen nicht speichern: {e}")
+
+    def _save_ui_config(self):
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                cfg = json.load(f)
+            cfg.setdefault("plotter", {})["offset_x"] = float(self.offset_x_var.get())
+            cfg.setdefault("plotter", {})["offset_y"] = float(self.offset_y_var.get())
+            cfg.setdefault("vectorization", {})["scale"] = float(self.font_size_var.get())
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(cfg, f, indent=4)
+        except (ValueError, FileNotFoundError, json.JSONDecodeError):
+            pass
+
+    def _on_font_size_changed(self, *_):
+        try:
+            scale = float(self.font_size_var.get())
+            self.converter.settings["scale"] = scale
+            self.update_preview()
+        except ValueError:
+            pass
+
+    def _apply_font_size(self):
+        try:
+            scale = float(self.font_size_var.get())
+        except ValueError:
+            messagebox.showwarning("Ungültig", "Schriftgröße muss eine gültige Zahl sein.")
+            return
+        self.converter.settings["scale"] = scale
+        self._save_ui_config()
+        self.update_preview()
+        self.log(f"Schriftgröße übernommen: {scale}")
 
     def log(self, message):
         self.log_out.config(state="normal")
@@ -293,7 +416,7 @@ class PlotterUI(tk.Tk):
             def load_and_start():
                 try:
                     if not self.recognizer:
-                        self.recognizer = SpeechRecognizer(callback=self._on_speech_recognized)
+                        self.recognizer = SpeechRecognizer(config_path=CONFIG_PATH, callback=self._on_speech_recognized)
 
                     self.recognizer.start()
                     self.after(0, lambda: self._voice_started())
@@ -325,25 +448,13 @@ class PlotterUI(tk.Tk):
         if not text:
             return
 
-        # Vektorisieren
-        self.current_paths = self.converter.text_to_paths(text, start_x=10, start_y=100)
+        # Word-wrap then vectorise
+        max_w = self.converter.settings.get("printable_width_mm", 130.0)
+        wrapped = self.converter.wrap_text(text, max_w)
+        self.current_paths = self.converter.text_to_paths(wrapped, start_x=10, start_y=205)
 
-        # Zeichnen auf Canvas
-        self.canvas.delete("all")
+        self._update_alignment_canvas()
 
-        # Skalierung und Verschiebung für Vorschau (Canvas 0,0 ist oben links)
-        # Wir müssen Y ggf. anpassen, da Plotter 0,0 meist unten links ist
-        for path in self.current_paths:
-            if len(path) < 2: continue
-            # Konvertiere Punkte in Canvas-Koordinaten
-            points = []
-            for (x, y) in path:
-                # Canvas-Y = h - y (einfache Spiegelung für Vorschau)
-                points.append(x * 2) # Skalierung für Vorschau
-                points.append(400 - (y * 2))
-
-            self.canvas.create_line(points, fill=self.THEME["fg_plot_line"], width=1)
-            
     def start_plot(self):
         if not self.validate_fields():
             return
@@ -356,7 +467,14 @@ class PlotterUI(tk.Tk):
             messagebox.showwarning("Nicht verbunden", "Bitte verbinden Sie zuerst den Plotter.")
             return
 
-        gcode = self.generator.generate_gcode(self.current_paths)
+        try:
+            ox = float(self.offset_x_var.get())
+            oy = float(self.offset_y_var.get())
+        except ValueError:
+            ox, oy = 0.0, 0.0
+
+        shifted_paths = [[(x + ox, y + oy) for x, y in path] for path in self.current_paths]
+        gcode = self.generator.generate_gcode(shifted_paths)
         self.plotter.start_plotting(gcode)
 
     def stop_plot(self):
@@ -369,17 +487,9 @@ class PlotterUI(tk.Tk):
         if self.plotter.ser and self.plotter.ser.is_open:
             self.plotter.send_line("G28")
 
-    def _periodic_check(self):
-        # Hier könnten wir Status-Abfragen vom Plotter einbauen
-        self.after(100, self._periodic_check)
-
     def on_closing(self):
         if self.recognizer:
             self.recognizer.stop()
         self.plotter.disconnect()
         self.destroy()
 
-if __name__ == "__main__":
-    app = PlotterUI()
-    app.protocol("WM_DELETE_WINDOW", app.on_closing)
-    app.mainloop()

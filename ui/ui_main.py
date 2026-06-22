@@ -233,17 +233,27 @@ class PlotterUI(tk.Tk):
         right = ttk.Frame(parent)
         right.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
 
-        # Font size
+        # Font size + Schriftart
         font_frame = ttk.LabelFrame(right, text="Schrift")
         font_frame.pack(fill="x", pady=(0, 8))
         font_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(font_frame, text="Größe:").grid(row=0, column=0, padx=6, pady=8, sticky="w")
+        ttk.Label(font_frame, text="Schriftart:").grid(row=0, column=0, padx=6, pady=8, sticky="w")
+        self._font_list = TextToPathConverter.list_available_fonts()
+        self.font_var = tk.StringVar()
+        self.font_cb = ttk.Combobox(
+            font_frame, textvariable=self.font_var,
+            values=[display for _, display in self._font_list],
+            state="readonly")
+        self.font_cb.grid(row=0, column=1, columnspan=2, padx=6, pady=8, sticky="ew")
+        self.font_cb.bind("<<ComboboxSelected>>", lambda _e: self._on_font_changed())
+
+        ttk.Label(font_frame, text="Größe:").grid(row=1, column=0, padx=6, pady=8, sticky="w")
         self.font_size_var = tk.StringVar(value="1.0")
         self.font_size_entry = ttk.Entry(font_frame, textvariable=self.font_size_var, width=8)
-        self.font_size_entry.grid(row=0, column=1, padx=6, pady=8, sticky="w")
+        self.font_size_entry.grid(row=1, column=1, padx=6, pady=8, sticky="w")
         ttk.Button(font_frame, text="Anwenden",
-                   command=self._apply_font_size).grid(row=0, column=2, padx=(0, 6), pady=8)
+                   command=self._apply_font_size).grid(row=1, column=2, padx=(0, 6), pady=8)
         self.font_size_var.trace_add("write", self._on_font_size_changed)
 
         # Offset calibration
@@ -301,8 +311,14 @@ class PlotterUI(tk.Tk):
         self.z_speed_entry = ttk.Entry(plotter_frame, textvariable=self.z_speed_var, width=8)
         self.z_speed_entry.grid(row=4, column=1, padx=6, pady=6, sticky="w")
 
+        ttk.Label(plotter_frame, text="Bett nach vorne (mm):").grid(
+            row=5, column=0, padx=6, pady=6, sticky="w")
+        self.bed_eject_y_var = tk.StringVar(value="300.0")
+        self.bed_eject_y_entry = ttk.Entry(plotter_frame, textvariable=self.bed_eject_y_var, width=8)
+        self.bed_eject_y_entry.grid(row=5, column=1, padx=6, pady=6, sticky="w")
+
         ttk.Button(plotter_frame, text="Speichern", command=self.save_settings).grid(
-            row=5, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
+            row=6, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
 
         # Mikrofon-Einstellungen
         mic_frame = ttk.LabelFrame(right, text="Mikrofon")
@@ -454,7 +470,7 @@ class PlotterUI(tk.Tk):
                              "undo_keyword": "Dino"},
             "plotter": {"z_up": 5.0, "z_down": 0.0, "writing_speed": 1000, "air_speed": 3000,
                         "z_speed": 1500, "port": "", "baudrate": 115200,
-                        "offset_x": 0.0, "offset_y": 0.0},
+                        "offset_x": 0.0, "offset_y": 0.0, "bed_eject_y": 300.0},
             "paths": {"audio_input": "data/input/audio/", "gcode_output": "data/output/gcode/"},
             "vectorization": {"scale": 1.0, "line_spacing": 15.0, "char_spacing": 5.0,
                               "printable_width_mm": 130.0},
@@ -480,9 +496,20 @@ class PlotterUI(tk.Tk):
         self.writing_speed_var.set(p.get("writing_speed", 1000))
         self.air_speed_var.set(p.get("air_speed", 3000))
         self.z_speed_var.set(p.get("z_speed", 1500))
+        self.bed_eject_y_var.set(p.get("bed_eject_y", 300.0))
         self.font_size_var.set(v.get("scale", 1.0))
         self.offset_x_var.set(p.get("offset_x", 0.0))
         self.offset_y_var.set(p.get("offset_y", 0.0))
+
+        current_font = v.get("font", TextToPathConverter.DEFAULT_FONT)
+        font_idx = 0
+        for i, (fid, _disp) in enumerate(self._font_list):
+            if fid == current_font:
+                font_idx = i
+                break
+        if self._font_list:
+            self.font_cb.current(font_idx)
+            self.converter.set_font(self._font_list[font_idx][0])
 
         stt = cfg.get("stt_settings", {})
         try:
@@ -502,6 +529,7 @@ class PlotterUI(tk.Tk):
             (self.writing_speed_var, self.writing_speed_entry, "Schreib-Speed"),
             (self.air_speed_var, self.air_speed_entry, "Luft-Speed"),
             (self.z_speed_var, self.z_speed_entry, "Z-Speed"),
+            (self.bed_eject_y_var, self.bed_eject_y_entry, "Bett nach vorne"),
             (self.port_var, self.port_cb, "Port")
         ]
 
@@ -539,6 +567,7 @@ class PlotterUI(tk.Tk):
             cfg["plotter"]["writing_speed"] = int(self.writing_speed_var.get())
             cfg["plotter"]["air_speed"] = int(self.air_speed_var.get())
             cfg["plotter"]["z_speed"] = int(self.z_speed_var.get())
+            cfg["plotter"]["bed_eject_y"] = float(self.bed_eject_y_var.get())
             cfg["plotter"]["offset_x"] = float(self.offset_x_var.get() or 0)
             cfg["plotter"]["offset_y"] = float(self.offset_y_var.get() or 0)
             cfg["whisper"]["model_size"] = self.model_var.get()
@@ -569,6 +598,25 @@ class PlotterUI(tk.Tk):
                 json.dump(cfg, f, indent=4)
         except (ValueError, FileNotFoundError, json.JSONDecodeError):
             pass
+
+    def _on_font_changed(self):
+        idx = self.font_cb.current()
+        if idx < 0 or idx >= len(self._font_list):
+            return
+        font_id, display = self._font_list[idx]
+        self.converter.set_font(font_id)
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                cfg = json.load(f)
+            cfg.setdefault("vectorization", {})["font"] = font_id
+            tmp = CONFIG_PATH + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(cfg, f, indent=4)
+            os.replace(tmp, CONFIG_PATH)
+        except (OSError, json.JSONDecodeError):
+            pass
+        self.update_preview()
+        self.log(f"Schriftart gewechselt: {display}")
 
     def _on_font_size_changed(self, *_):
         try:

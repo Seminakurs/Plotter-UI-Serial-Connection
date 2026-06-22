@@ -22,16 +22,18 @@ class GCodeGenerator:
                 self.writing_speed = plotter_cfg.get("writing_speed", 1000)
                 self.air_speed = plotter_cfg.get("air_speed", 3000)
                 self.z_speed = plotter_cfg.get("z_speed", 1500)
+                self.bed_eject_y = plotter_cfg.get("bed_eject_y", 300.0)
                 self.start_gcode = plotter_cfg.get("start_gcode", ["G21", "G90", "G28"])
-                self.end_gcode = plotter_cfg.get("end_gcode", ["G1 Z5.0", "G28 X0 Y0", "M84"])
+                self.end_gcode = plotter_cfg.get("end_gcode", ["M84"])
         except Exception:
             self.z_up = 5.0
             self.z_down = 0.0
             self.writing_speed = 1000
             self.air_speed = 3000
             self.z_speed = 1500
+            self.bed_eject_y = 300.0
             self.start_gcode = ["G21", "G90", "G28"]
-            self.end_gcode = ["G1 Z5.0", "G28 X0 Y0", "M84"]
+            self.end_gcode = ["M84"]
 
     def generate_gcode(self, all_paths):
         """
@@ -65,6 +67,14 @@ class GCodeGenerator:
 
             # 4. Stift wieder hoch nach Ende des Pfades (Z-Move -> z_speed)
             gcode.append(f"G1 Z{self.z_up} F{self.z_speed}")
+
+        # Stift final auf die in der UI vorgegebene Höhe hochfahren
+        gcode.append(f"G1 Z{self.z_up} F{self.z_speed}")
+
+        # Druckbett komplett nach vorne fahren (relative Y-Bewegung bis zum Anschlag)
+        gcode.append("G91")
+        gcode.append(f"G1 Y{self.bed_eject_y} F{self.air_speed}")
+        gcode.append("G90")
 
         # Ende-Sequenz
         for line in self.end_gcode:

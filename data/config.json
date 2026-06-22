@@ -21,16 +21,19 @@
         "port": "COM3 \u2014 USB Serial Port (COM3)",
         "baudrate": 115200,
         "offset_x": 0.0,
-        "offset_y": 15.0
+        "offset_y": 15.0,
+        "z_speed": 3000,
+        "bed_eject_y": 300.0
     },
     "paths": {
         "audio_input": "data/input/audio/",
         "gcode_output": "data/output/gcode/"
     },
     "vectorization": {
-        "scale": 0.4,
+        "scale": 0.7,
         "line_spacing": 15.0,
         "char_spacing": 5.0,
-        "printable_width_mm": 130.0
+        "printable_width_mm": 130.0,
+        "font": "hershey:gothicger"
     }
 }

@@ -9,6 +9,7 @@ from core.speech_to_text import SpeechRecognizer
 from core.text_vectorization import TextToPathConverter
 from core.gcode_converter import GCodeGenerator
 from core.serial_comm import SerialPlotter
+from utils.logger import SessionLogger
 
 class PlotterUI(tk.Tk):
     def __init__(self):
@@ -60,6 +61,7 @@ class PlotterUI(tk.Tk):
         self.converter = TextToPathConverter()
         self.generator = GCodeGenerator()
         self.plotter = SerialPlotter(log_callback=self.log)
+        self.logger = SessionLogger()
 
         # State
         self.current_paths = []
@@ -134,12 +136,17 @@ class PlotterUI(tk.Tk):
         self.z_down_entry = ttk.Entry(settings_frame, textvariable=self.z_down_var, width=8)
         self.z_down_entry.grid(row=1, column=1, padx=5, pady=2)
 
-        ttk.Label(settings_frame, text="Feedrate:").grid(row=2, column=0, padx=5, pady=2, sticky="w")
-        self.feed_var = tk.StringVar(value="1500")
-        self.feed_entry = ttk.Entry(settings_frame, textvariable=self.feed_var, width=8)
-        self.feed_entry.grid(row=2, column=1, padx=5, pady=2)
+        ttk.Label(settings_frame, text="Schreib-Speed (Z unten):").grid(row=2, column=0, padx=5, pady=2, sticky="w")
+        self.writing_speed_var = tk.StringVar(value="1000")
+        self.writing_speed_entry = ttk.Entry(settings_frame, textvariable=self.writing_speed_var, width=8)
+        self.writing_speed_entry.grid(row=2, column=1, padx=5, pady=2)
 
-        ttk.Button(settings_frame, text="Speichern", command=self.save_settings).grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        ttk.Label(settings_frame, text="Luft-Speed (Z oben):").grid(row=3, column=0, padx=5, pady=2, sticky="w")
+        self.air_speed_var = tk.StringVar(value="3000")
+        self.air_speed_entry = ttk.Entry(settings_frame, textvariable=self.air_speed_var, width=8)
+        self.air_speed_entry.grid(row=3, column=1, padx=5, pady=2)
+
+        ttk.Button(settings_frame, text="Speichern", command=self.save_settings).grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         # 4. Action Frame
         action_frame = ttk.LabelFrame(left_panel, text="Aktionen")
@@ -188,7 +195,8 @@ class PlotterUI(tk.Tk):
                 self.device_var.set(cfg.get("whisper", {}).get("device", "auto"))
                 self.z_up_var.set(cfg.get("plotter", {}).get("z_up", 5.0))
                 self.z_down_var.set(cfg.get("plotter", {}).get("z_down", 0.0))
-                self.feed_var.set(cfg.get("plotter", {}).get("feedrate", 1500))
+                self.writing_speed_var.set(cfg.get("plotter", {}).get("writing_speed", 1000))
+                self.air_speed_var.set(cfg.get("plotter", {}).get("air_speed", 3000))
         except:
             pass
 
@@ -199,7 +207,8 @@ class PlotterUI(tk.Tk):
         fields = [
             (self.z_up_var, self.z_up_entry, "Stift HOCH"),
             (self.z_down_var, self.z_down_entry, "Stift RUNTER"),
-            (self.feed_var, self.feed_entry, "Feedrate"),
+            (self.writing_speed_var, self.writing_speed_entry, "Schreib-Speed"),
+            (self.air_speed_var, self.air_speed_entry, "Luft-Speed"),
             (self.port_var, self.port_cb, "Port")
         ]
 
@@ -244,7 +253,8 @@ class PlotterUI(tk.Tk):
             cfg["plotter"]["port"] = self.port_var.get()
             cfg["plotter"]["z_up"] = float(self.z_up_var.get())
             cfg["plotter"]["z_down"] = float(self.z_down_var.get())
-            cfg["plotter"]["feedrate"] = int(self.feed_var.get())
+            cfg["plotter"]["writing_speed"] = int(self.writing_speed_var.get())
+            cfg["plotter"]["air_speed"] = int(self.air_speed_var.get())
             cfg["whisper"]["model_size"] = self.model_var.get()
             cfg["whisper"]["threads"] = self.threads_var.get()
             cfg["whisper"]["device"] = self.device_var.get()
@@ -255,15 +265,18 @@ class PlotterUI(tk.Tk):
             # Update instances
             self.plotter.load_config()
             self.generator.load_config()
+            if self.recognizer:
+                self.recognizer.reload_config()
             self.log("Einstellungen gespeichert.")
         except Exception as e:
             messagebox.showerror("Fehler", f"Konnte Einstellungen nicht speichern: {e}")
 
-    def log(self, message):
+    def log(self, message, category="app"):
         self.log_out.config(state="normal")
         self.log_out.insert("end", f"{time.strftime('%H:%M:%S')} {message}\n")
         self.log_out.see("end")
         self.log_out.config(state="disabled")
+        self.logger.write(category, message)
 
     def refresh_ports(self):
         ports = self.plotter.list_ports()
@@ -293,7 +306,10 @@ class PlotterUI(tk.Tk):
             def load_and_start():
                 try:
                     if not self.recognizer:
-                        self.recognizer = SpeechRecognizer(callback=self._on_speech_recognized)
+                        self.recognizer = SpeechRecognizer(
+                            callback=self._on_speech_recognized,
+                            status_callback=self._on_status_update
+                        )
 
                     self.recognizer.start()
                     self.after(0, lambda: self._voice_started())
@@ -311,14 +327,41 @@ class PlotterUI(tk.Tk):
         self.log(f"Fehler bei Spracherkennung: {error}")
         messagebox.showerror("Fehler", f"Whisper konnte nicht gestartet werden: {error}")
 
-    def _on_speech_recognized(self, text):
-        # Callback vom Whisper-Thread
-        self.after(0, lambda: self._add_text_to_ui(text))
+    def _on_speech_recognized(self, result):
+        # Callback vom Whisper-Worker-Thread -> per self.after() in den Main-Thread marshalen
+        self.after(0, lambda r=result: self._handle_stt_result(r))
 
-    def _add_text_to_ui(self, text):
+    def _handle_stt_result(self, result):
+        if result.get("undo"):
+            self._undo_last_sentence()
+            return
+        text = result["text"]
+        confidence = result["confidence"]
         self.text_input.insert("end", f"{text}\n")
-        self.log(f"Erkannt: {text}")
+        self.log(f"Erkannt ({confidence:.1f}% Konfidenz): {text}", category="stt_transkripte")
         self.update_preview()
+
+    def _undo_last_sentence(self):
+        """Löscht die letzte Zeile (= letzten gesprochenen Satz) aus dem Textfeld."""
+        content = self.text_input.get("1.0", "end-1c")
+        lines = content.split("\n")
+        # Leere Trailing-Zeilen ignorieren, letzte echte Zeile finden
+        while lines and not lines[-1].strip():
+            lines.pop()
+        if lines:
+            removed = lines.pop()
+            self.text_input.delete("1.0", "end")
+            new_text = "\n".join(lines)
+            if new_text:
+                self.text_input.insert("1.0", new_text + "\n")
+            self.log(f"UNDO: '{removed}' gelöscht.", category="stt_transkripte")
+            self.update_preview()
+        else:
+            self.log("UNDO: Kein Text zum Löschen vorhanden.", category="stt_transkripte")
+
+    def _on_status_update(self, message):
+        # Callback vom Whisper-Thread -> über self.after() in den Main-Thread marshalen
+        self.after(0, lambda: self.log(message, category="whisper_system"))
 
     def update_preview(self):
         text = self.text_input.get("1.0", "end").strip()
@@ -376,7 +419,9 @@ class PlotterUI(tk.Tk):
     def on_closing(self):
         if self.recognizer:
             self.recognizer.stop()
+            self.recognizer.logger.close()
         self.plotter.disconnect()
+        self.logger.close()
         self.destroy()
 
 if __name__ == "__main__":

@@ -1,15 +1,23 @@
 {
     "whisper": {
         "model_size": "medium",
-        "device": "auto",
+        "device": "cuda",
         "threads": 12,
         "language": "de"
     },
+    "stt_settings": {
+        "silence_threshold": 0.01,
+        "silence_duration": 0.8,
+        "min_speech_duration": 0.5,
+        "max_buffer_seconds": 30,
+        "undo_keyword": "Dino"
+    },
     "plotter": {
-        "z_up": 5.0,
+        "z_up": 3.0,
         "z_down": 0.0,
-        "feedrate": 1500,
-        "port": "",
+        "writing_speed": 1000,
+        "air_speed": 3000,
+        "port": "COM1 \u2014 Kommunikationsanschluss (COM1)",
         "baudrate": 115200
     },
     "paths": {

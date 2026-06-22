@@ -9,5 +9,8 @@ data/input/text/*
 !data/input/text/.gitkeep
 data/output/gcode/*
 !data/output/gcode/.gitkeep
+data/output/logs/*
+!data/output/logs/.gitkeep
 .env
 .vscode/
+.claude/

@@ -166,9 +166,13 @@ class PlotterUI(tk.Tk):
         self.threads_entry = ttk.Entry(voice, textvariable=self.threads_var)
         self.threads_entry.grid(row=2, column=1, padx=6, pady=5, sticky="ew")
 
+        self.update_model_btn = ttk.Button(voice, text="Modell aktualisieren",
+                                           command=self.apply_model_change)
+        self.update_model_btn.grid(row=3, column=0, columnspan=2, padx=6, pady=(2, 4), sticky="ew")
+
         self.voice_btn = ttk.Button(voice, text="Spracherkennung starten",
                                     command=self.toggle_voice)
-        self.voice_btn.grid(row=3, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
+        self.voice_btn.grid(row=4, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
 
         # Actions
         actions = ttk.LabelFrame(sidebar, text="Aktionen")
@@ -490,6 +494,71 @@ class PlotterUI(tk.Tk):
                     self.after(0, lambda: self._voice_failed(e))
 
             threading.Thread(target=load_and_start, daemon=True).start()
+
+    def apply_model_change(self):
+        try:
+            threads_val = int(self.threads_var.get())
+        except (ValueError, tk.TclError):
+            messagebox.showwarning("Ungültig", "Threads muss eine ganze Zahl sein.")
+            return
+
+        model = self.model_var.get()
+        device = self.device_var.get()
+
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                cfg = json.load(f)
+            cfg.setdefault("whisper", {})
+            cfg["whisper"]["model_size"] = model
+            cfg["whisper"]["device"] = device
+            cfg["whisper"]["threads"] = threads_val
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(cfg, f, indent=4)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Konnte Config nicht schreiben: {e}")
+            return
+
+        was_running = bool(self.recognizer and self.recognizer.running)
+        self.update_model_btn.config(state="disabled", text="Lade Modell...")
+        self.voice_btn.config(state="disabled")
+        self.log(f"Aktualisiere Whisper auf Modell='{model}', Device='{device}'...")
+
+        def worker():
+            try:
+                if self.recognizer is None:
+                    self.recognizer = SpeechRecognizer(
+                        config_path=CONFIG_PATH,
+                        callback=self._on_speech_recognized,
+                        status_callback=self._on_status_update,
+                    )
+                else:
+                    if was_running:
+                        self.recognizer.stop()
+                    self.recognizer.reload_config()
+                    if was_running:
+                        self.recognizer.start()
+                self.after(0, lambda: self._model_update_done(was_running))
+            except Exception as e:
+                self.after(0, lambda err=e: self._model_update_failed(err, was_running))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _model_update_done(self, was_running):
+        self.update_model_btn.config(state="normal", text="Modell aktualisieren")
+        self.voice_btn.config(
+            state="normal",
+            text="Spracherkennung STOP" if was_running else "Spracherkennung starten",
+        )
+        self.log("Modell-Aktualisierung abgeschlossen.")
+
+    def _model_update_failed(self, error, was_running):
+        self.update_model_btn.config(state="normal", text="Modell aktualisieren")
+        self.voice_btn.config(
+            state="normal",
+            text="Spracherkennung STOP" if was_running else "Spracherkennung starten",
+        )
+        self.log(f"Fehler bei Modell-Aktualisierung: {error}")
+        messagebox.showerror("Fehler", f"Modell konnte nicht geladen werden: {error}")
 
     def _voice_started(self):
         self.voice_btn.config(state="normal", text="Spracherkennung STOP")

@@ -16,23 +16,27 @@ from core.text_vectorization import TextToPathConverter
 from core.gcode_converter import GCodeGenerator
 from core.serial_comm import SerialPlotter
 
+
 class PlotterUI(tk.Tk):
     def __init__(self):
         super().__init__()
-        # ── THEME ── change colors here, nowhere else ──────────────────────
         self.THEME = {
-            "bg":           "#1e1e1e",   # window / panel background
-            "bg_widget":    "#2d2d2d",   # entry / combobox / text fields
-            "bg_log":       "#141414",   # log console background
-            "bg_button":    "#3a3a3a",   # button face
-            "bg_button_hover": "#505050",
-            "fg":           "#d4d4d4",   # normal text
-            "fg_accent":    "#9cdcfe",   # labels, log text, section titles
-            "fg_error":     "#f44747",   # validation error highlight
-            "fg_plot_line": "#4ec9b0",   # vector preview lines on canvas
-            "border":       "#444444",
+            "bg":              "#0d1117",
+            "bg_panel":        "#161b22",
+            "bg_widget":       "#21262d",
+            "bg_log":          "#010409",
+            "bg_button":       "#21262d",
+            "bg_button_hover": "#30363d",
+            "bg_accent":       "#1f6feb",
+            "bg_stop":         "#b91c1c",
+            "fg":              "#e6edf3",
+            "fg_accent":       "#58a6ff",
+            "fg_dim":          "#8b949e",
+            "fg_error":        "#f85149",
+            "fg_plot_line":    "#3fb950",
+            "border":          "#30363d",
         }
-        T = self.THEME  # shorthand used below
+        T = self.THEME
 
         self.configure(bg=T["bg"])
         style = ttk.Style(self)
@@ -40,196 +44,249 @@ class PlotterUI(tk.Tk):
         style.configure(".",
             background=T["bg"], foreground=T["fg"],
             fieldbackground=T["bg_widget"], bordercolor=T["border"],
-            darkcolor=T["bg"], lightcolor=T["bg_widget"])
-        style.configure("TLabelframe",       background=T["bg"],   foreground=T["fg"])
-        style.configure("TLabelframe.Label", background=T["bg"],   foreground=T["fg_accent"])
-        style.configure("TLabel",            background=T["bg"],   foreground=T["fg"])
-        style.configure("TFrame",            background=T["bg"])
-        style.configure("TButton",           background=T["bg_button"], foreground=T["fg"], borderwidth=1)
-        style.map("TButton",                 background=[("active", T["bg_button_hover"])])
-        style.configure("TEntry",            fieldbackground=T["bg_widget"], foreground=T["fg"],
-                                            insertcolor=T["fg"])
-        style.configure("TCombobox",         fieldbackground=T["bg_widget"], foreground=T["fg"],
-                                            selectbackground=T["bg_widget"])
-        style.map("TCombobox",               fieldbackground=[("readonly", T["bg_widget"])])
-
-        # Validation styles — driven by THEME, don't touch these
+            darkcolor=T["bg_panel"], lightcolor=T["bg_panel"],
+            troughcolor=T["bg_panel"])
+        style.configure("TLabelframe",
+            background=T["bg_panel"], bordercolor=T["border"], relief="groove")
+        style.configure("TLabelframe.Label",
+            background=T["bg_panel"], foreground=T["fg_accent"],
+            font=("Segoe UI", 9, "bold"))
+        style.configure("TLabel",  background=T["bg_panel"], foreground=T["fg"])
+        style.configure("TFrame",  background=T["bg"])
+        style.configure("TButton",
+            background=T["bg_button"], foreground=T["fg"],
+            borderwidth=1, bordercolor=T["border"], padding=(6, 4))
+        style.map("TButton", background=[("active", T["bg_button_hover"])])
+        style.configure("Accent.TButton",
+            background=T["bg_accent"], foreground="#ffffff",
+            borderwidth=0, padding=(6, 8), font=("Segoe UI", 10, "bold"))
+        style.map("Accent.TButton",
+            background=[("active", "#388bfd"), ("disabled", T["bg_button"])])
+        style.configure("Stop.TButton",
+            background=T["bg_stop"], foreground="#ffffff",
+            borderwidth=0, padding=(6, 6))
+        style.map("Stop.TButton", background=[("active", "#da3633")])
+        style.configure("TEntry",
+            fieldbackground=T["bg_widget"], foreground=T["fg"],
+            insertcolor=T["fg"], bordercolor=T["border"])
+        style.configure("TCombobox",
+            fieldbackground=T["bg_widget"], foreground=T["fg"],
+            selectbackground=T["bg_widget"], arrowcolor=T["fg_accent"])
+        style.map("TCombobox",
+            fieldbackground=[("readonly", T["bg_widget"])],
+            foreground=[("readonly", T["fg"])])
+        style.configure("TNotebook",
+            background=T["bg"], borderwidth=0, tabmargins=0)
+        style.configure("TNotebook.Tab",
+            background=T["bg_panel"], foreground=T["fg_dim"],
+            padding=(14, 7), borderwidth=0)
+        style.map("TNotebook.Tab",
+            background=[("selected", T["bg"])],
+            foreground=[("selected", T["fg_accent"])])
+        style.configure("TSeparator", background=T["border"])
         style.configure("Invalid.TEntry",    fieldbackground=T["fg_error"])
         style.configure("Invalid.TCombobox", fieldbackground=T["fg_error"])
-        # ────────────────────────────────────────────────────────────────────
-        self.title("Fenster")
+
+        self.title("Voice-to-Plotter")
         self.state("zoomed")
-        # Core instances
+
         self.recognizer = None
         self.converter = TextToPathConverter(config_path=CONFIG_PATH)
         self.generator = GCodeGenerator(config_path=CONFIG_PATH)
         self.plotter = SerialPlotter(config_path=CONFIG_PATH, log_callback=self.log)
-
-        # State
         self.current_paths = []
 
         self.create_widgets()
         self.load_config_to_ui()
 
-
     def create_widgets(self):
         notebook = ttk.Notebook(self)
-        notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        notebook.pack(fill="both", expand=True)
 
-        # Tab 1 — existing controls
-        main_frame = ttk.Frame(notebook)
-        notebook.add(main_frame, text="Steuerung")
+        tab1 = ttk.Frame(notebook)
+        notebook.add(tab1, text="  Steuerung  ")
 
-        # Tab 2 — preview & alignment
-        align_frame = ttk.Frame(notebook)
-        notebook.add(align_frame, text="Vorschau & Ausrichtung")
+        tab2 = ttk.Frame(notebook)
+        notebook.add(tab2, text="  Vorschau & Einstellungen  ")
 
-        # Main layout: Left (Controls), Right (Preview)
-        left_panel = ttk.Frame(main_frame, width=350)
-        left_panel.pack(side="left", fill="y", padx=(0, 10))
+        self._build_control_tab(tab1)
+        self._build_alignment_tab(tab2)
 
-        right_panel = ttk.Frame(main_frame)
-        right_panel.pack(side="right", fill="both", expand=True)
+    def _build_control_tab(self, parent):
+        T = self.THEME
 
-        # --- LEFT PANEL: Settings & Controls ---
+        # ── LEFT SIDEBAR ─────────────────────────────────────────────────────
+        sidebar = ttk.Frame(parent, width=290)
+        sidebar.pack(side="left", fill="y", padx=(10, 0), pady=10)
+        sidebar.pack_propagate(False)
 
-        # 1. Connection Frame
-        conn_frame = ttk.LabelFrame(left_panel, text="Verbindung (Plotter)")
-        conn_frame.pack(fill="x", pady=(0, 10))
+        ttk.Separator(parent, orient="vertical").pack(side="left", fill="y", padx=8, pady=10)
 
-        ttk.Label(conn_frame, text="Port:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        # ── RIGHT MAIN ───────────────────────────────────────────────────────
+        main = ttk.Frame(parent)
+        main.pack(side="right", fill="both", expand=True, padx=(0, 10), pady=10)
+
+        # Connection
+        conn = ttk.LabelFrame(sidebar, text="Verbindung")
+        conn.pack(fill="x", pady=(0, 8))
+        conn.columnconfigure(1, weight=1)
+
+        ttk.Label(conn, text="Port:").grid(row=0, column=0, padx=6, pady=6, sticky="w")
         self.port_var = tk.StringVar()
         ports = self.plotter.list_ports()
-        self.port_cb = ttk.Combobox(conn_frame, textvariable=self.port_var,
-            values=ports, width=max((len(p) for p in ports), default=20))
-        self.port_cb.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.port_cb = ttk.Combobox(conn, textvariable=self.port_var, values=ports, width=12)
+        self.port_cb.grid(row=0, column=1, padx=4, pady=6, sticky="ew")
+        ttk.Button(conn, text="↻", command=self.refresh_ports, width=3).grid(
+            row=0, column=2, padx=(2, 6))
 
-        ttk.Button(conn_frame, text="Aktualisieren", command=self.refresh_ports).grid(row=0, column=2, padx=5, pady=5)
+        self.connect_btn = ttk.Button(conn, text="Verbinden", command=self.toggle_connection)
+        self.connect_btn.grid(row=1, column=0, columnspan=3, padx=6, pady=(0, 8), sticky="ew")
 
-        self.connect_btn = ttk.Button(conn_frame, text="Verbinden", command=self.toggle_connection)
-        self.connect_btn.grid(row=1, column=0, columnspan=3, padx=5, pady=5, sticky="ew")
+        # Speech recognition
+        voice = ttk.LabelFrame(sidebar, text="Spracherkennung")
+        voice.pack(fill="x", pady=8)
+        voice.columnconfigure(1, weight=1)
 
-        # 2. Whisper Frame
-        whisper_frame = ttk.LabelFrame(left_panel, text="Spracherkennung (Whisper)")
-        whisper_frame.pack(fill="x", pady=10)
-
-        ttk.Label(whisper_frame, text="Modell:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(voice, text="Modell:").grid(row=0, column=0, padx=6, pady=5, sticky="w")
         self.model_var = tk.StringVar(value="medium")
-        _whisper_models = ["small", "medium", "large"]
-        self.model_cb = ttk.Combobox(whisper_frame, textvariable=self.model_var,
-                                     values=_whisper_models, state="readonly")
-        self.model_cb.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.model_cb = ttk.Combobox(voice, textvariable=self.model_var,
+            values=["small", "medium", "large"], state="readonly")
+        self.model_cb.grid(row=0, column=1, padx=6, pady=5, sticky="ew")
 
-        ttk.Label(whisper_frame, text="Threads:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.threads_var = tk.IntVar(value=12)
-        self.threads_entry = ttk.Entry(whisper_frame, textvariable=self.threads_var)
-        self.threads_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-
-        ttk.Label(whisper_frame, text="Gerät:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(voice, text="Gerät:").grid(row=1, column=0, padx=6, pady=5, sticky="w")
         self.device_var = tk.StringVar(value="auto")
-        self.device_cb = ttk.Combobox(whisper_frame, textvariable=self.device_var, values=["auto", "cpu", "cuda"])
-        self.device_cb.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        self.device_cb = ttk.Combobox(voice, textvariable=self.device_var,
+            values=["auto", "cpu", "cuda"], state="readonly")
+        self.device_cb.grid(row=1, column=1, padx=6, pady=5, sticky="ew")
 
-        self.voice_btn = ttk.Button(whisper_frame, text="Spracherkennung starten", command=self.toggle_voice)
-        self.voice_btn.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        ttk.Label(voice, text="Threads:").grid(row=2, column=0, padx=6, pady=5, sticky="w")
+        self.threads_var = tk.IntVar(value=12)
+        self.threads_entry = ttk.Entry(voice, textvariable=self.threads_var)
+        self.threads_entry.grid(row=2, column=1, padx=6, pady=5, sticky="ew")
 
-        # 3. Plotter Settings
-        settings_frame = ttk.LabelFrame(left_panel, text="Plotter-Einstellungen")
-        settings_frame.pack(fill="x", pady=10)
+        self.voice_btn = ttk.Button(voice, text="Spracherkennung starten",
+                                    command=self.toggle_voice)
+        self.voice_btn.grid(row=3, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
 
-        ttk.Label(settings_frame, text="Stift HOCH (mm):").grid(row=0, column=0, padx=5, pady=2, sticky="w")
-        self.z_up_var = tk.StringVar(value="5.0")
-        self.z_up_entry = ttk.Entry(settings_frame, textvariable=self.z_up_var, width=8)
-        self.z_up_entry.grid(row=0, column=1, padx=5, pady=2)
+        # Actions
+        actions = ttk.LabelFrame(sidebar, text="Aktionen")
+        actions.pack(fill="x", pady=8)
 
-        ttk.Label(settings_frame, text="Stift RUNTER (mm):").grid(row=1, column=0, padx=5, pady=2, sticky="w")
-        self.z_down_var = tk.StringVar(value="0.0")
-        self.z_down_entry = ttk.Entry(settings_frame, textvariable=self.z_down_var, width=8)
-        self.z_down_entry.grid(row=1, column=1, padx=5, pady=2)
+        ttk.Button(actions, text="⌂  Home  (G28)", command=self.home_plotter).pack(
+            fill="x", padx=8, pady=(8, 4))
+        self.plot_btn = ttk.Button(actions, text="▶  PLOTTEN STARTEN",
+                                   command=self.start_plot, style="Accent.TButton")
+        self.plot_btn.pack(fill="x", padx=8, pady=4)
+        ttk.Button(actions, text="■  STOP / NOT-AUS",
+                   command=self.stop_plot, style="Stop.TButton").pack(
+            fill="x", padx=8, pady=(4, 10))
 
-        ttk.Label(settings_frame, text="Feedrate:").grid(row=2, column=0, padx=5, pady=2, sticky="w")
-        self.feed_var = tk.StringVar(value="1500")
-        self.feed_entry = ttk.Entry(settings_frame, textvariable=self.feed_var, width=8)
-        self.feed_entry.grid(row=2, column=1, padx=5, pady=2)
+        # Text input
+        text_frame = ttk.LabelFrame(main, text="Erkannter Text / Eingabe")
+        text_frame.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(settings_frame, text="Schriftgröße:").grid(row=3, column=0, padx=5, pady=2, sticky="w")
-        self.font_size_var = tk.StringVar(value="1.0")
-        self.font_size_entry = ttk.Entry(settings_frame, textvariable=self.font_size_var, width=8)
-        self.font_size_entry.grid(row=3, column=1, padx=5, pady=2)
-        self.font_size_var.trace_add("write", self._on_font_size_changed)
+        self.text_input = tk.Text(text_frame, height=8,
+            bg=T["bg_widget"], fg=T["fg"],
+            insertbackground=T["fg"], relief="flat",
+            font=("Segoe UI", 11), padx=8, pady=6)
+        self.text_input.pack(fill="both", expand=True, padx=6, pady=(6, 4))
 
-        ttk.Button(settings_frame, text="Schriftgröße anwenden", command=self._apply_font_size).grid(row=4, column=0, columnspan=2, padx=5, pady=2, sticky="ew")
-        ttk.Button(settings_frame, text="Speichern", command=self.save_settings).grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        ttk.Button(text_frame, text="Vorschau aktualisieren",
+                   command=self.update_preview).pack(anchor="e", padx=8, pady=(0, 8))
 
-        # 4. Action Frame
-        action_frame = ttk.LabelFrame(left_panel, text="Aktionen")
-        action_frame.pack(fill="x", pady=10)
-
-        ttk.Button(action_frame, text="Home (G28)", command=self.home_plotter).pack(fill="x", padx=5, pady=2)
-        self.plot_btn = ttk.Button(action_frame, text="PLOTTEN STARTEN", command=self.start_plot)
-        self.plot_btn.pack(fill="x", padx=5, pady=10)
-        ttk.Button(action_frame, text="STOP / Not-Aus", command=self.stop_plot).pack(fill="x", padx=5, pady=2)
-
-        # --- RIGHT PANEL: Preview & Console ---
-
-        # 1. Text Input / Recognized Text
-        text_frame = ttk.LabelFrame(right_panel, text="Erkannter Text / Eingabe")
-        text_frame.pack(fill="x", pady=10)
-
-        self.text_input = tk.Text(text_frame, height=3,
-            bg=self.THEME["bg_widget"], fg=self.THEME["fg"],
-            insertbackground=self.THEME["fg"], relief="flat")
-        self.text_input.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-        ttk.Button(text_frame, text="Vorschau\naktualisieren", command=self.update_preview).pack(side="right", padx=5, pady=5)
-
-        # 3. Console/Log
-        log_frame = ttk.LabelFrame(right_panel, text="Log / Konsole")
+        # Log console
+        log_frame = ttk.LabelFrame(main, text="Log / Konsole")
         log_frame.pack(fill="both", expand=True)
 
-        self.log_out = scrolledtext.ScrolledText(log_frame, height=8, state="disabled",
-    font=("Consolas", 9), bg=self.THEME["bg_log"], fg=self.THEME["fg_accent"],
-    insertbackground=self.THEME["fg"], relief="flat")
-        self.log_out.pack(fill="both", expand=True, padx=5, pady=5)
-
-        self._build_alignment_tab(align_frame)
+        self.log_out = scrolledtext.ScrolledText(log_frame, state="disabled",
+            font=("Consolas", 9), bg=T["bg_log"], fg=T["fg_accent"],
+            insertbackground=T["fg"], relief="flat", padx=6, pady=6)
+        self.log_out.pack(fill="both", expand=True, padx=6, pady=6)
 
     def _build_alignment_tab(self, parent):
         T = self.THEME
-        parent.columnconfigure(0, weight=3)
+        parent.columnconfigure(0, weight=0)
         parent.columnconfigure(1, weight=1)
         parent.rowconfigure(0, weight=1)
 
         A5_PX_W, A5_PX_H = 350, int(350 * 1.4142)
 
+        # Left: A5 canvas
         canvas_frame = ttk.LabelFrame(parent, text="A5-Vorschau")
-        canvas_frame.grid(row=0, column=0, sticky="nsew", padx=(5, 10), pady=5)
+        canvas_frame.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=10)
 
         self.align_canvas = tk.Canvas(
             canvas_frame, width=A5_PX_W, height=A5_PX_H,
             bg="white", highlightthickness=1,
             highlightbackground=T["border"]
         )
-        self.align_canvas.pack(padx=5, pady=5)
+        self.align_canvas.pack(padx=8, pady=8)
 
-        ctrl_frame = ttk.Frame(parent)
-        ctrl_frame.grid(row=0, column=1, sticky="n", padx=(0, 5), pady=5)
+        # Right: settings
+        right = ttk.Frame(parent)
+        right.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
 
-        off_frame = ttk.LabelFrame(ctrl_frame, text="Start-Offset (mm)")
-        off_frame.pack(fill="x", pady=(0, 10))
+        # Font size
+        font_frame = ttk.LabelFrame(right, text="Schrift")
+        font_frame.pack(fill="x", pady=(0, 8))
+        font_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(off_frame, text="X:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(font_frame, text="Größe:").grid(row=0, column=0, padx=6, pady=8, sticky="w")
+        self.font_size_var = tk.StringVar(value="1.0")
+        self.font_size_entry = ttk.Entry(font_frame, textvariable=self.font_size_var, width=8)
+        self.font_size_entry.grid(row=0, column=1, padx=6, pady=8, sticky="w")
+        ttk.Button(font_frame, text="Anwenden",
+                   command=self._apply_font_size).grid(row=0, column=2, padx=(0, 6), pady=8)
+        self.font_size_var.trace_add("write", self._on_font_size_changed)
+
+        # Offset calibration
+        off_frame = ttk.LabelFrame(right, text="Start-Offset (mm)")
+        off_frame.pack(fill="x", pady=8)
+        off_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(off_frame, text="X:").grid(row=0, column=0, padx=6, pady=8, sticky="w")
         self.offset_x_var = tk.StringVar(value="0.0")
-        ttk.Entry(off_frame, textvariable=self.offset_x_var, width=8).grid(row=0, column=1, padx=5)
+        ttk.Entry(off_frame, textvariable=self.offset_x_var, width=10).grid(
+            row=0, column=1, padx=6, pady=8, sticky="w")
 
-        ttk.Label(off_frame, text="Y:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(off_frame, text="Y:").grid(row=1, column=0, padx=6, pady=8, sticky="w")
         self.offset_y_var = tk.StringVar(value="0.0")
-        ttk.Entry(off_frame, textvariable=self.offset_y_var, width=8).grid(row=1, column=1, padx=5)
+        ttk.Entry(off_frame, textvariable=self.offset_y_var, width=10).grid(
+            row=1, column=1, padx=6, pady=8, sticky="w")
 
-        self.offset_x_var.trace_add("write", lambda *_: (self._update_alignment_canvas(), self._save_ui_config()))
-        self.offset_y_var.trace_add("write", lambda *_: (self._update_alignment_canvas(), self._save_ui_config()))
+        self.offset_x_var.trace_add("write",
+            lambda *_: (self._update_alignment_canvas(), self._save_ui_config()))
+        self.offset_y_var.trace_add("write",
+            lambda *_: (self._update_alignment_canvas(), self._save_ui_config()))
 
-        ttk.Button(ctrl_frame, text="Vorschau aktualisieren",
-                   command=self._update_alignment_canvas).pack(fill="x", pady=5)
+        # Plotter settings
+        plotter_frame = ttk.LabelFrame(right, text="Plotter-Einstellungen")
+        plotter_frame.pack(fill="x", pady=8)
+        plotter_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(plotter_frame, text="Stift HOCH (mm):").grid(
+            row=0, column=0, padx=6, pady=6, sticky="w")
+        self.z_up_var = tk.StringVar(value="5.0")
+        self.z_up_entry = ttk.Entry(plotter_frame, textvariable=self.z_up_var, width=8)
+        self.z_up_entry.grid(row=0, column=1, padx=6, pady=6, sticky="w")
+
+        ttk.Label(plotter_frame, text="Stift RUNTER (mm):").grid(
+            row=1, column=0, padx=6, pady=6, sticky="w")
+        self.z_down_var = tk.StringVar(value="0.0")
+        self.z_down_entry = ttk.Entry(plotter_frame, textvariable=self.z_down_var, width=8)
+        self.z_down_entry.grid(row=1, column=1, padx=6, pady=6, sticky="w")
+
+        ttk.Label(plotter_frame, text="Feedrate:").grid(
+            row=2, column=0, padx=6, pady=6, sticky="w")
+        self.feed_var = tk.StringVar(value="1500")
+        self.feed_entry = ttk.Entry(plotter_frame, textvariable=self.feed_var, width=8)
+        self.feed_entry.grid(row=2, column=1, padx=6, pady=6, sticky="w")
+
+        ttk.Button(plotter_frame, text="Speichern", command=self.save_settings).grid(
+            row=3, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
+
+        ttk.Button(right, text="Vorschau aktualisieren",
+                   command=self._update_alignment_canvas).pack(fill="x", pady=(8, 0))
 
     def _update_alignment_canvas(self):
         self.align_canvas.delete("all")
@@ -288,7 +345,6 @@ class PlotterUI(tk.Tk):
     def validate_fields(self):
         """Validiert die Eingabefelder und gibt visuelles Feedback."""
         valid = True
-        # Liste der zu validierenden Felder: (Variable, Widget, Label-Name)
         fields = [
             (self.z_up_var, self.z_up_entry, "Stift HOCH"),
             (self.z_down_var, self.z_down_entry, "Stift RUNTER"),
@@ -299,18 +355,13 @@ class PlotterUI(tk.Tk):
         for var, widget, name in fields:
             val = var.get().strip()
             if not val:
-                # Tkinter Entry Hintergrundfarbe ändern
                 if isinstance(widget, ttk.Entry) or isinstance(widget, ttk.Combobox):
                     widget.configure(style="Invalid.TEntry" if isinstance(widget, ttk.Entry) else "Invalid.TCombobox")
-
-                # Fallback für Standard-Entry falls ttk Style nicht greift
                 try: widget.config(background="red")
                 except: pass
-
                 self.log(f"WARNUNG: Feld '{name}' muss ausgefüllt werden.")
                 valid = False
             else:
-                # Hintergrund zurücksetzen
                 if isinstance(widget, ttk.Entry) or isinstance(widget, ttk.Combobox):
                     widget.configure(style="TEntry" if isinstance(widget, ttk.Entry) else "TCombobox")
                 try: widget.config(background="white")
@@ -343,7 +394,6 @@ class PlotterUI(tk.Tk):
             with open(CONFIG_PATH, "w") as f:
                 json.dump(cfg, f, indent=4)
 
-            # Update instances
             self.plotter.load_config()
             self.generator.load_config()
             self.converter.load_config()
@@ -394,7 +444,7 @@ class PlotterUI(tk.Tk):
         if ports:
             self.port_cb["width"] = max(len(p) for p in ports)
             self.port_cb.current(0)
-            
+
     def toggle_connection(self):
         if self.plotter.ser and self.plotter.ser.is_open:
             self.plotter.disconnect()
@@ -412,12 +462,11 @@ class PlotterUI(tk.Tk):
             self.log("Initialisiere Whisper (bitte warten)...")
             self.voice_btn.config(state="disabled", text="Lade Modell...")
 
-            # Modellladen in separatem Thread, um UI nicht zu blockieren
             def load_and_start():
                 try:
                     if not self.recognizer:
-                        self.recognizer = SpeechRecognizer(config_path=CONFIG_PATH, callback=self._on_speech_recognized)
-
+                        self.recognizer = SpeechRecognizer(
+                            config_path=CONFIG_PATH, callback=self._on_speech_recognized)
                     self.recognizer.start()
                     self.after(0, lambda: self._voice_started())
                 except Exception as e:
@@ -435,7 +484,6 @@ class PlotterUI(tk.Tk):
         messagebox.showerror("Fehler", f"Whisper konnte nicht gestartet werden: {error}")
 
     def _on_speech_recognized(self, text):
-        # Callback vom Whisper-Thread
         self.after(0, lambda: self._add_text_to_ui(text))
 
     def _add_text_to_ui(self, text):
@@ -448,7 +496,6 @@ class PlotterUI(tk.Tk):
         if not text:
             return
 
-        # Word-wrap then vectorise
         max_w = self.converter.settings.get("printable_width_mm", 130.0)
         wrapped = self.converter.wrap_text(text, max_w)
         self.current_paths = self.converter.text_to_paths(wrapped, start_x=10, start_y=205)
@@ -479,7 +526,6 @@ class PlotterUI(tk.Tk):
 
     def stop_plot(self):
         self.plotter.stop_plotting()
-        # Not-Aus an Plotter senden
         if self.plotter.ser and self.plotter.ser.is_open:
             self.plotter.ser.write(b"M112\n")
 
@@ -492,4 +538,3 @@ class PlotterUI(tk.Tk):
             self.recognizer.stop()
         self.plotter.disconnect()
         self.destroy()
-

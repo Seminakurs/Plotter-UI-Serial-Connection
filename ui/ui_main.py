@@ -1,20 +1,23 @@
 import os
+import sys
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import json
 import threading
 import time
 
-# Absolute path to config — works regardless of working directory
 _UI_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_DIR = os.path.dirname(_UI_DIR)
 CONFIG_PATH = os.path.join(_PROJECT_DIR, "data", "config.json")
 
-# Import core modules
+if _PROJECT_DIR not in sys.path:
+    sys.path.insert(0, _PROJECT_DIR)
+
 from core.speech_to_text import SpeechRecognizer
 from core.text_vectorization import TextToPathConverter
 from core.gcode_converter import GCodeGenerator
 from core.serial_comm import SerialPlotter
+from utils.logger import SessionLogger
 
 
 class PlotterUI(tk.Tk):
@@ -94,6 +97,7 @@ class PlotterUI(tk.Tk):
         self.converter = TextToPathConverter(config_path=CONFIG_PATH)
         self.generator = GCodeGenerator(config_path=CONFIG_PATH)
         self.plotter = SerialPlotter(config_path=CONFIG_PATH, log_callback=self.log)
+        self.logger = SessionLogger()
         self.current_paths = []
 
         self.create_widgets()
@@ -115,14 +119,12 @@ class PlotterUI(tk.Tk):
     def _build_control_tab(self, parent):
         T = self.THEME
 
-        # ── LEFT SIDEBAR ─────────────────────────────────────────────────────
         sidebar = ttk.Frame(parent, width=290)
         sidebar.pack(side="left", fill="y", padx=(10, 0), pady=10)
         sidebar.pack_propagate(False)
 
         ttk.Separator(parent, orient="vertical").pack(side="left", fill="y", padx=8, pady=10)
 
-        # ── RIGHT MAIN ───────────────────────────────────────────────────────
         main = ttk.Frame(parent)
         main.pack(side="right", fill="both", expand=True, padx=(0, 10), pady=10)
 
@@ -211,7 +213,6 @@ class PlotterUI(tk.Tk):
 
         A5_PX_W, A5_PX_H = 350, int(350 * 1.4142)
 
-        # Left: A5 canvas
         canvas_frame = ttk.LabelFrame(parent, text="A5-Vorschau")
         canvas_frame.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=10)
 
@@ -222,7 +223,6 @@ class PlotterUI(tk.Tk):
         )
         self.align_canvas.pack(padx=8, pady=8)
 
-        # Right: settings
         right = ttk.Frame(parent)
         right.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
 
@@ -259,7 +259,7 @@ class PlotterUI(tk.Tk):
         self.offset_y_var.trace_add("write",
             lambda *_: (self._update_alignment_canvas(), self._save_ui_config()))
 
-        # Plotter settings
+        # Plotter settings — writing_speed / air_speed (from stt-overhaul)
         plotter_frame = ttk.LabelFrame(right, text="Plotter-Einstellungen")
         plotter_frame.pack(fill="x", pady=8)
         plotter_frame.columnconfigure(1, weight=1)
@@ -276,14 +276,20 @@ class PlotterUI(tk.Tk):
         self.z_down_entry = ttk.Entry(plotter_frame, textvariable=self.z_down_var, width=8)
         self.z_down_entry.grid(row=1, column=1, padx=6, pady=6, sticky="w")
 
-        ttk.Label(plotter_frame, text="Feedrate:").grid(
+        ttk.Label(plotter_frame, text="Schreib-Speed (Z unten):").grid(
             row=2, column=0, padx=6, pady=6, sticky="w")
-        self.feed_var = tk.StringVar(value="1500")
-        self.feed_entry = ttk.Entry(plotter_frame, textvariable=self.feed_var, width=8)
-        self.feed_entry.grid(row=2, column=1, padx=6, pady=6, sticky="w")
+        self.writing_speed_var = tk.StringVar(value="1000")
+        self.writing_speed_entry = ttk.Entry(plotter_frame, textvariable=self.writing_speed_var, width=8)
+        self.writing_speed_entry.grid(row=2, column=1, padx=6, pady=6, sticky="w")
+
+        ttk.Label(plotter_frame, text="Luft-Speed (Z oben):").grid(
+            row=3, column=0, padx=6, pady=6, sticky="w")
+        self.air_speed_var = tk.StringVar(value="3000")
+        self.air_speed_entry = ttk.Entry(plotter_frame, textvariable=self.air_speed_var, width=8)
+        self.air_speed_entry.grid(row=3, column=1, padx=6, pady=6, sticky="w")
 
         ttk.Button(plotter_frame, text="Speichern", command=self.save_settings).grid(
-            row=3, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
+            row=4, column=0, columnspan=2, padx=6, pady=(2, 8), sticky="ew")
 
         ttk.Button(right, text="Vorschau aktualisieren",
                    command=self._update_alignment_canvas).pack(fill="x", pady=(8, 0))
@@ -313,8 +319,11 @@ class PlotterUI(tk.Tk):
     def load_config_to_ui(self):
         _default = {
             "whisper": {"model_size": "medium", "device": "auto", "threads": 12, "language": "de"},
-            "plotter": {"z_up": 5.0, "z_down": 0.0, "feedrate": 1500, "port": "",
-                        "baudrate": 115200, "offset_x": 0.0, "offset_y": 0.0},
+            "stt_settings": {"silence_threshold": 0.01, "silence_duration": 0.8,
+                             "min_speech_duration": 0.5, "max_buffer_seconds": 30,
+                             "undo_keyword": "Dino"},
+            "plotter": {"z_up": 5.0, "z_down": 0.0, "writing_speed": 1000, "air_speed": 3000,
+                        "port": "", "baudrate": 115200, "offset_x": 0.0, "offset_y": 0.0},
             "paths": {"audio_input": "data/input/audio/", "gcode_output": "data/output/gcode/"},
             "vectorization": {"scale": 1.0, "line_spacing": 15.0, "char_spacing": 5.0,
                               "printable_width_mm": 130.0},
@@ -337,18 +346,19 @@ class PlotterUI(tk.Tk):
         self.device_var.set(w.get("device", "auto"))
         self.z_up_var.set(p.get("z_up", 5.0))
         self.z_down_var.set(p.get("z_down", 0.0))
-        self.feed_var.set(p.get("feedrate", 1500))
+        self.writing_speed_var.set(p.get("writing_speed", 1000))
+        self.air_speed_var.set(p.get("air_speed", 3000))
         self.font_size_var.set(v.get("scale", 1.0))
         self.offset_x_var.set(p.get("offset_x", 0.0))
         self.offset_y_var.set(p.get("offset_y", 0.0))
 
     def validate_fields(self):
-        """Validiert die Eingabefelder und gibt visuelles Feedback."""
         valid = True
         fields = [
             (self.z_up_var, self.z_up_entry, "Stift HOCH"),
             (self.z_down_var, self.z_down_entry, "Stift RUNTER"),
-            (self.feed_var, self.feed_entry, "Feedrate"),
+            (self.writing_speed_var, self.writing_speed_entry, "Schreib-Speed"),
+            (self.air_speed_var, self.air_speed_entry, "Luft-Speed"),
             (self.port_var, self.port_cb, "Port")
         ]
 
@@ -383,7 +393,8 @@ class PlotterUI(tk.Tk):
             cfg["plotter"]["port"] = self.port_var.get()
             cfg["plotter"]["z_up"] = float(self.z_up_var.get())
             cfg["plotter"]["z_down"] = float(self.z_down_var.get())
-            cfg["plotter"]["feedrate"] = int(self.feed_var.get())
+            cfg["plotter"]["writing_speed"] = int(self.writing_speed_var.get())
+            cfg["plotter"]["air_speed"] = int(self.air_speed_var.get())
             cfg["plotter"]["offset_x"] = float(self.offset_x_var.get() or 0)
             cfg["plotter"]["offset_y"] = float(self.offset_y_var.get() or 0)
             cfg["whisper"]["model_size"] = self.model_var.get()
@@ -397,6 +408,8 @@ class PlotterUI(tk.Tk):
             self.plotter.load_config()
             self.generator.load_config()
             self.converter.load_config()
+            if self.recognizer:
+                self.recognizer.reload_config()
             self.log("Einstellungen gespeichert.")
         except Exception as e:
             messagebox.showerror("Fehler", f"Konnte Einstellungen nicht speichern: {e}")
@@ -432,11 +445,12 @@ class PlotterUI(tk.Tk):
         self.update_preview()
         self.log(f"Schriftgröße übernommen: {scale}")
 
-    def log(self, message):
+    def log(self, message, category="app"):
         self.log_out.config(state="normal")
         self.log_out.insert("end", f"{time.strftime('%H:%M:%S')} {message}\n")
         self.log_out.see("end")
         self.log_out.config(state="disabled")
+        self.logger.write(category, message)
 
     def refresh_ports(self):
         ports = self.plotter.list_ports()
@@ -466,7 +480,10 @@ class PlotterUI(tk.Tk):
                 try:
                     if not self.recognizer:
                         self.recognizer = SpeechRecognizer(
-                            config_path=CONFIG_PATH, callback=self._on_speech_recognized)
+                            config_path=CONFIG_PATH,
+                            callback=self._on_speech_recognized,
+                            status_callback=self._on_status_update
+                        )
                     self.recognizer.start()
                     self.after(0, lambda: self._voice_started())
                 except Exception as e:
@@ -483,13 +500,37 @@ class PlotterUI(tk.Tk):
         self.log(f"Fehler bei Spracherkennung: {error}")
         messagebox.showerror("Fehler", f"Whisper konnte nicht gestartet werden: {error}")
 
-    def _on_speech_recognized(self, text):
-        self.after(0, lambda: self._add_text_to_ui(text))
+    def _on_speech_recognized(self, result):
+        self.after(0, lambda r=result: self._handle_stt_result(r))
 
-    def _add_text_to_ui(self, text):
+    def _handle_stt_result(self, result):
+        if result.get("undo"):
+            self._undo_last_sentence()
+            return
+        text = result["text"]
+        confidence = result["confidence"]
         self.text_input.insert("end", f"{text}\n")
-        self.log(f"Erkannt: {text}")
+        self.log(f"Erkannt ({confidence:.1f}% Konfidenz): {text}", category="stt_transkripte")
         self.update_preview()
+
+    def _undo_last_sentence(self):
+        content = self.text_input.get("1.0", "end-1c")
+        lines = content.split("\n")
+        while lines and not lines[-1].strip():
+            lines.pop()
+        if lines:
+            removed = lines.pop()
+            self.text_input.delete("1.0", "end")
+            new_text = "\n".join(lines)
+            if new_text:
+                self.text_input.insert("1.0", new_text + "\n")
+            self.log(f"UNDO: '{removed}' gelöscht.", category="stt_transkripte")
+            self.update_preview()
+        else:
+            self.log("UNDO: Kein Text zum Löschen vorhanden.", category="stt_transkripte")
+
+    def _on_status_update(self, message):
+        self.after(0, lambda: self.log(message, category="whisper_system"))
 
     def update_preview(self):
         text = self.text_input.get("1.0", "end").strip()
@@ -536,5 +577,12 @@ class PlotterUI(tk.Tk):
     def on_closing(self):
         if self.recognizer:
             self.recognizer.stop()
+            self.recognizer.logger.close()
         self.plotter.disconnect()
+        self.logger.close()
         self.destroy()
+
+if __name__ == "__main__":
+    app = PlotterUI()
+    app.protocol("WM_DELETE_WINDOW", app.on_closing)
+    app.mainloop()
